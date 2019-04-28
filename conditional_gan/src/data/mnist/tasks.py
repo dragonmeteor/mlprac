@@ -41,10 +41,14 @@ class Constants:
         TEST_LABEL_RAW_FILE,
     ]
 
+    TRAINING_FILE_FULL = DIR + "/training_full.pt"
     TRAINING_FILE = DIR + "/training.pt"
+    VALIDATION_FILE = DIR + "/validation.pt"
     TEST_FILE = DIR + "/test.pt"
 
     SAMPLE_IMAGES_FILE = DIR + "/sample_images.png"
+
+    VALIDATION_SIZE = 5000
 
 
 # Most of the code below is taken and modified from
@@ -89,10 +93,26 @@ def read_label_file(path):
         return torch.from_numpy(parsed).view(length).long()
 
 
-def write_training_file():
+def write_training_full_file():
     training_images = read_image_file(Constants.TRAINING_IMAGE_RAW_FILE)
     training_labels = read_label_file(Constants.TRAINING_LABEL_RAW_FILE)
+    with open(Constants.TRAINING_FILE_FULL, 'wb') as f:
+        torch.save((training_images, training_labels), f)
+
+
+def write_training_file():
+    m = Constants.VALIDATION_SIZE
+    training_images = read_image_file(Constants.TRAINING_IMAGE_RAW_FILE)[m:, :].clone()
+    training_labels = read_label_file(Constants.TRAINING_LABEL_RAW_FILE)[m:].clone()
     with open(Constants.TRAINING_FILE, 'wb') as f:
+        torch.save((training_images, training_labels), f)
+
+
+def write_validation_file():
+    m = Constants.VALIDATION_SIZE
+    training_images = read_image_file(Constants.TRAINING_IMAGE_RAW_FILE)[:m, :].clone()
+    training_labels = read_label_file(Constants.TRAINING_LABEL_RAW_FILE)[:m].clone()
+    with open(Constants.VALIDATION_FILE, 'wb') as f:
         torch.save((training_images, training_labels), f)
 
 
@@ -118,14 +138,14 @@ def prepare_4x4_images(numpy_images):
 
 
 def show_images():
-    images, labels = torch.load(Constants.TRAINING_FILE)
+    images, labels = torch.load(Constants.TRAINING_FILE_FULL)
     numpy_images = images[:16, :, :].numpy()
     prepare_4x4_images(numpy_images)
     plt.show()
 
 
 def sample_images():
-    images, labels = torch.load(Constants.TRAINING_FILE)
+    images, labels = torch.load(Constants.TRAINING_FILE_FULL)
     numpy_images = images[:16, :, :].numpy()
     prepare_4x4_images(numpy_images)
     plt.savefig(Constants.SAMPLE_IMAGES_FILE, format='png')
@@ -140,13 +160,20 @@ def define_tasks(workspace: Workspace):
         workspace.create_file_task(raw_file, Constants.GZ_FILES, uncompress_mnist)
     workspace.create_command_task(Constants.DIR + "/uncompress", Constants.RAW_FILES)
 
+    workspace.create_file_task(Constants.TRAINING_FILE_FULL, Constants.RAW_FILES, write_training_full_file)
     workspace.create_file_task(Constants.TRAINING_FILE, Constants.RAW_FILES, write_training_file)
+    workspace.create_file_task(Constants.VALIDATION_FILE, Constants.RAW_FILES, write_validation_file)
     workspace.create_file_task(Constants.TEST_FILE, Constants.RAW_FILES, write_test_file)
-    workspace.create_command_task(Constants.DIR + "/process", [Constants.TRAINING_FILE, Constants.TEST_FILE])
+    workspace.create_command_task(Constants.DIR + "/process", [
+        Constants.TRAINING_FILE_FULL,
+        Constants.TRAINING_FILE,
+        Constants.VALIDATION_FILE,
+        Constants.TEST_FILE
+    ])
 
     create_delete_all_task(workspace, Constants.DIR + "/clean", Constants.RAW_FILES + Constants.GZ_FILES +
-                           [Constants.TRAINING_FILE, Constants.TEST_FILE])
+                           [Constants.TRAINING_FILE_FULL, Constants.TEST_FILE])
 
-    workspace.create_command_task(Constants.DIR + "/show_images", [Constants.TRAINING_FILE], show_images)
+    workspace.create_command_task(Constants.DIR + "/show_images", [Constants.TRAINING_FILE_FULL], show_images)
 
-    workspace.create_file_task(Constants.SAMPLE_IMAGES_FILE, [Constants.TRAINING_FILE], sample_images)
+    workspace.create_file_task(Constants.SAMPLE_IMAGES_FILE, [Constants.TRAINING_FILE_FULL], sample_images)

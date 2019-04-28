@@ -5,4 +5,4 @@ import data.mnist.tasks
 
 def define_tasks(workspace: Workspace):
     data.mnist.tasks.define_tasks(workspace)
-    MnistCganTasks(workspace, "data/mnist_cgan").define_tasks()
+    #MnistCganTasks(workspace, "data/mnist_cgan").define_tasks()
