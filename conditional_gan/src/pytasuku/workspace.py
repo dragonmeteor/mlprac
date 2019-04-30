@@ -29,8 +29,10 @@ class FuncFileTask(FileTask):
     def run(self):
         self._func()
 
+
 def do_nothing():
     pass
+
 
 class Workspace:
     def __init__(self):
@@ -139,3 +141,6 @@ class Workspace:
 
     def create_file_task(self, name, dependencies, func):
         return FuncFileTask(self, name, dependencies, func)
+
+    def get_task_names(self):
+        return self._tasks.keys()
