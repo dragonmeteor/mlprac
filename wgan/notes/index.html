@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- The above 3 meta tags *must* come first in the head; any other head content must come *after* these tags -->
+    <title>Wasserstein GANs</title>
+
+    <!-- Bootstrap -->
+    <link href="css/bootstrap.min.css" rel="stylesheet">
+    <link href="css/theme.css" rel="stylesheet">
+
+    <!-- HTML5 shim and Respond.js for IE8 support of HTML5 elements and media queries -->
+    <!-- WARNING: Respond.js doesn't work if you view the page via file:// -->
+    <!--[if lt IE 9]>
+    <script src="https://oss.maxcdn.com/html5shiv/3.7.3/html5shiv.min.js"></script>
+    <script src="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
+    <![endif]-->    
+
+
+
+    <!-- MathJax -->
+    <script type="text/x-mathjax-config">
+    MathJax.Hub.Config({
+      tex2jax: {inlineMath: [['$','$'], ['\\(','\\)']]},
+      TeX: { equationNumbers: {autoNumber: "AMS"} } 
+    });
+    </script>    
+    <script src='https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js?config=TeX-MML-AM_CHTML' async></script>
+</head>
+<body>
+<div class="container">
+    \(
+    \newcommand{\ve}[1]{\mathbf{#1}}
+    \newcommand{\diag}{\mathrm{diag}}
+    \newcommand{\Real}{\mathbb{R}}
+    \newcommand{\tr}{\mathbb{tr}}
+    \DeclareMathOperator*{\argmin}{arg\,min}
+    \DeclareMathOperator*{\argmax}{arg\,max}
+    \)
+
+    <div class="page-header"><h1>Wasserstein GANs</h1></div>
+    
+    <p>This is a practice on using PyTorch to implement the Wasserstein loss with gradient penalty for GANS, as described in the paper <a href="https://arxiv.org/abs/1704.00028">Improved Traning of Wasserstein GANs</a> by Gulrajani et al. This implementation is based on <a href="https://github.com/caogang/wgan-gp">the implementation by Marvin Cao.</a> Basically, I learned how to compute gradients with respect to input from that repository.</p>
+
+    <h2>Network Architecture</h2>
+
+    <p>The goal of this practice is to be able to generate digit images that mimic the <a href="http://yann.lecun.com/exdb/mnist/">MNIST dataset.</a> As for the architecture of the networks, we'll use the DCGAN architecture from <a href="http://cs231n.github.io/assignments2018/assignment3/">Stanford's CS231n Assignment 3</a>. Luckily, this architecture does not have any batch normalization layers, so we can use it without any modification.</p>
+
+    <h3>Discriminator</h3>
+
+    <p>This is inspired by the TensorFlow MNIST classification tutorial.</p>
+
+    <ul>
+        <li>Reshape to $28 \times 28$ image.</li>
+        <li>Conv2D: $32$ filters, $5 \times 5$, Stride 1.</li>
+        <li>LeakyReLU with $\alpha = 0.01$.</li>
+        <li>MaxPool $2 \times 2$, Stride 2.</li>
+        <li>Conv2D: $64$ filters, $5 \times 5$, Stride 1.</li>
+        <li>LeakyReLU with $\alpha = 0.01$.</li>
+        <li>MaxPool $2 \times 2$, Stride 2.</li>
+        <li>Reshape to $784$-vector.</li>
+        <li>Fully connected layer that transforms $768$ to $1024$.</li>
+        <li>LeakyReLU with $\alpha = 0.01$.</li>
+        <li>Fully connected layer that transforms $1024$ to $1$.</li>
+    </ul>
+
+    <h3>Generator</h3>
+
+    <p>This is copied from the <a href="https://arxiv.org/pdf/1606.03657.pdf">InfoGAN paper</a>.</p>
+
+    <ul>
+        <li>Fully connected layer that transforms $96$ to $1024$.</li>
+        <li>ReLU.</li>
+        <li>BatchNorm.</li>
+        <li>Fully connected layer that transform $1024$ to $7 \times 7 \times 128$.</li>
+        <li>ReLU.</li>
+        <li>BatchNorm.</li>
+        <li>Reshape to image tensor of shape $7, 7, 128$.</li>
+        <li>Conv2D Transpose: $64$ filters, $4 \times 4$, Stride 2, 'same' padding.</li>
+        <li>ReLU.</li>
+        <li>BatchNorm.</li>
+        <li>Conv2D Transpose: $1$ filter, $4 \times 4$, Stride 2, 'same' padding.</li>
+        <li>TanH.</li>
+        <li>Now we should have a $28 \times 28 \times 1$ image. Reshape to $784$-vector.</li>
+    </ul>
+
+    <h2>Computing Gradients with Respect to the Input</h2>
+
+    <p>The <a href="https://pytorch.org/docs/stable/autograd.html#torch.autograd.grad"><tt>autograd.grad</tt></a> function can be used to compute the gradients. From Marvin Cao's implementation, these are things to watch out for:</p>
+
+    <ul>
+        <li>When creating the interpolates between pairs of inputs to the gradient, make sure that you detach first and then call <tt>requires_grad_(True)</tt>.</li>
+        <li>When calling <tt>autograd.grad</tt>, set (1) <tt>only_inputs=True</tt>, (2) <tt>create_graph=True</tt>, and <tt>retain_graph=True</tt>.</li>
+    </ul>
+</div>
+
+</body>
+</html>
