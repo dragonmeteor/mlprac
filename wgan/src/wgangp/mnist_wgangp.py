@@ -12,16 +12,19 @@ class MnistWganGp(MnistGan):
         self.grad_loss_weight = grad_loss_weight
 
     def discriminator_loss(self,
+                           G: torch.nn.Module,
                            D: torch.nn.Module,
                            real_image: torch.Tensor,
-                           fake_image: torch.Tensor) -> torch.Tensor:
+                           latent_vector: torch.Tensor) -> torch.Tensor:
         n = real_image.shape[0]
-        assert real_image.shape == torch.Size([n, self.image_vector_size])
-        assert fake_image.shape == torch.Size([n, self.image_vector_size])
+        assert real_image.shape == torch.Size([n, MnistGan.IMAGE_VECTOR_SIZE])
+        assert latent_vector.shape == torch.Size([n, MnistGan.LATENT_VECTOR_SIZE])
+
+        fake_image = G(latent_vector).detach()
 
         interpolates = self.create_interpolates(real_image, fake_image)
         interpolates.requires_grad_(True)
-        interpolates_grad = torch.zeros([n, self.image_vector_size], device=self.device)
+        interpolates_grad = torch.zeros([n, MnistGan.IMAGE_VECTOR_SIZE], device=self.device)
         torch.autograd.grad(D(interpolates),
                             interpolates,
                             grad_outputs=interpolates_grad,
@@ -34,7 +37,9 @@ class MnistWganGp(MnistGan):
 
         return real_loss - fake_loss + grad_loss
 
-    def create_interpolates(self, real_image, fake_image):
+    def create_interpolates(self,
+                            real_image: torch.Tensor,
+                            fake_image: torch.Tensor) -> torch.Tensor:
         n = real_image.shape[0]
         combined = torch.cat([real_image, fake_image], dim=0).detach()
         perm = torch.randperm(2 * n, device=self.device)

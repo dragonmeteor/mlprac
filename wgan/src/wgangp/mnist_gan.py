@@ -16,23 +16,25 @@ class MnistGanModule(torch.nn.Module):
 class MnistGan:
     __metaclass__ = abc.ABCMeta
 
+    IMAGE_SIZE = 28
+    IMAGE_VECTOR_SIZE = 28 * 28
+    LATENT_VECTOR_SIZE = 96
+    DEFAULT_BATCH_SIZE = 128
+
     def __init__(self, device=torch.device('cpu')):
-        self.image_size = 28
-        self.image_vector_size = self.image_size * self.image_size
-        self.latent_vector_size = 96
-        self.default_batch_size = 128
         self.device = device
 
     @abc.abstractmethod
-    def discriminator(self) -> torch.nn.Module:
+    def discriminator(self) -> MnistGanModule:
         pass
 
     @abc.abstractmethod
-    def generator(self) -> torch.nn.Module:
+    def generator(self) -> MnistGanModule:
         pass
 
     @abc.abstractmethod
     def discriminator_loss(self,
+                           G: torch.nn.Module,
                            D: torch.nn.Module,
                            real_image: torch.Tensor,
                            fake_image: torch.Tensor) -> torch.Tensor:
