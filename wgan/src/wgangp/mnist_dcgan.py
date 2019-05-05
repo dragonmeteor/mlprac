@@ -1,7 +1,7 @@
 import torch
 from torch.nn import Module, Sequential, Conv2d, LeakyReLU, Linear, ReLU, ConvTranspose2d, BatchNorm2d, Tanh, MaxPool2d, \
     BatchNorm1d
-from torch.nn.init import xavier_uniform_
+from torch.nn.init import xavier_uniform_, kaiming_uniform_, kaiming_normal_, xavier_normal_
 
 from wgangp.gan import Gan, GanModule
 
@@ -59,7 +59,7 @@ class MnistDcGanDiscriminator(GanModule):
     def initialize(self):
         for module in self.modules():
             if isinstance(module, Linear) or isinstance(module, Conv2d) or isinstance(module, ConvTranspose2d):
-                xavier_uniform_(module.weight)
+                kaiming_normal_(module.weight)
 
 
 class MnistDcGanGenerator(GanModule):
@@ -96,7 +96,7 @@ class MnistDcGanGenerator(GanModule):
     def initialize(self):
         for module in self.modules():
             if isinstance(module, Linear) or isinstance(module, Conv2d) or isinstance(module, ConvTranspose2d):
-                xavier_uniform_(module.weight)
+                xavier_normal_(module.weight)
 
 
 class MnistDcGan(Gan):
