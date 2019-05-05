@@ -1,10 +1,11 @@
 import abc
+
 import torch
 
-from wgangp.mnist_gan import MnistGan
+from wgangp.gan_loss import GanLoss
 
 
-class MnistWganGp(MnistGan):
+class WganGpLoss(GanLoss):
     __metaclass__ = abc.ABCMeta
 
     def __init__(self, grad_loss_weight: float = 10.0, device=torch.device('cpu')):
@@ -17,25 +18,27 @@ class MnistWganGp(MnistGan):
                            real_image: torch.Tensor,
                            latent_vector: torch.Tensor) -> torch.Tensor:
         n = real_image.shape[0]
-        assert real_image.shape == torch.Size([n, MnistGan.IMAGE_VECTOR_SIZE])
-        assert latent_vector.shape == torch.Size([n, MnistGan.LATENT_VECTOR_SIZE])
+        assert latent_vector.shape[0] == n
 
         fake_image = G(latent_vector).detach()
 
         interpolates = self.create_interpolates(real_image, fake_image)
         interpolates.requires_grad_(True)
-        interpolates_grad = torch.zeros([n, MnistGan.IMAGE_VECTOR_SIZE], device=self.device)
-        torch.autograd.grad(D(interpolates),
-                            interpolates,
-                            grad_outputs=interpolates_grad,
-                            only_inputs=True,
-                            create_graph=True)
-        grad_loss = ((interpolates_grad - 1.0) ** 2).mean() * self.grad_loss_weight
+        grad_outputs = torch.ones([n, 1], device=self.device)
+        interpolates_grad = torch.autograd.grad(D(interpolates),
+                                                interpolates,
+                                                grad_outputs=grad_outputs,
+                                                only_inputs=True,
+                                                create_graph=True,
+                                                retain_graph=True)[0]
+        grad_norm = interpolates_grad.norm(2, dim=1)
+        grad_diff = grad_norm - 1.0
+        grad_loss = grad_diff.mul(grad_diff).mean() * self.grad_loss_weight
 
         real_loss = D(real_image).mean()
-        fake_loss = D(fake_image).mean() * -1
+        fake_loss = D(fake_image).mean()
 
-        return real_loss - fake_loss + grad_loss
+        return -real_loss + fake_loss + grad_loss
 
     def create_interpolates(self,
                             real_image: torch.Tensor,
@@ -53,3 +56,20 @@ class MnistWganGp(MnistGan):
                        D: torch.nn.Module,
                        latent_vector: torch.Tensor) -> torch.Tensor:
         return D(G(latent_vector)).mean() * -1.0
+
+
+if __name__ == "__main__":
+    wgan_gp_loss = WganGpLoss()
+
+    real_image = torch.Tensor([
+        [1, 0, 0, 0, 0, 0],
+        [0, 1, 0, 0, 0, 0],
+        [0, 0, 1, 0, 0, 0],
+    ])
+    fake_image = torch.Tensor([
+        [0, 0, 0, 1, 0, 0],
+        [0, 0, 0, 0, 1, 0],
+        [0, 0, 0, 0, 0, 1]
+    ])
+
+    print(wgan_gp_loss.create_interpolates(real_image, fake_image))

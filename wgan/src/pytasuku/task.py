@@ -85,8 +85,8 @@ class FileTask(Task):
                 dep_task = self.workspace.get_task(dep)
                 if dep_task.timestamp > self_timestamp:
                     if isinstance(dep_task, FileTask) or isinstance(dep_task, PlaceholderTask):
-                        logging.info("Task %s needs to be run because task %s has later timestamp." %
-                                     (self.name, dep))
+                        logging.info("Task %s needs to be run because task %s has later timestamp. dep=%f, self=%f" %
+                                     (self.name, dep, dep_task.timestamp, self_timestamp))
                     elif isinstance(dep_task, CommandTask):
                         logging.info("Task %s needs to be run because task %s is a command." % (self.name, dep))
                     return True
