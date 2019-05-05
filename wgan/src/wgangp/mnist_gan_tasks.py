@@ -33,7 +33,7 @@ class MnistGanTasks:
                  model_seed=38490553,
                  sample_image_count=64,
                  sample_image_per_row=8,
-                 iter_per_sample_image=1000,
+                 iter_per_sample_image=100,
                  iter_per_loss_record=10,
                  batch_size=100,
                  save_point_count=10,
@@ -120,11 +120,37 @@ class MnistGanTasks:
     def save_generator_loss(self, generator_loss, save_point):
         torch_save(torch.Tensor(generator_loss), self.generator_loss_file_name(save_point))
 
+    def load_generator_loss(self, save_point):
+        return torch_load(self.generator_loss_file_name(save_point))
+
+    def generator_loss_plot_file_name(self, save_point):
+        return self.dir + "/generator_loss_plot_%03d.png" % save_point
+
+    def plot_generator_loss(self, save_point):
+        generator_loss = self.load_generator_loss(save_point).numpy()
+        self.plot_loss(generator_loss,
+                       "Generator Loss (Save point %03d)" % save_point,
+                       "Loss",
+                       self.generator_loss_plot_file_name(save_point))
+
     def discriminator_loss_file_name(self, save_point):
         return self.dir + "/discriminator_loss_%03d.pt" % save_point
 
     def save_discriminator_loss(self, discriminator_loss, save_point):
         torch_save(torch.Tensor(discriminator_loss), self.discriminator_loss_file_name(save_point))
+
+    def load_discriminator_loss(self, save_point):
+        return torch_load(self.discriminator_loss_file_name(save_point))
+
+    def discriminator_loss_plot_file_name(self, save_point):
+        return self.dir + "/dicriminator_loss_plot_%03d.png" % save_point
+
+    def plot_discriminator_loss(self, save_point):
+        discriminator_loss = self.load_discriminator_loss(save_point).numpy()
+        self.plot_loss(discriminator_loss,
+                       "Discriminator Loss (Save point %03d)" % save_point,
+                       "Loss",
+                       self.discriminator_loss_plot_file_name(save_point))
 
     def save_latent_vectors(self):
         torch.manual_seed(self.latent_vector_seed)
@@ -179,6 +205,14 @@ class MnistGanTasks:
             self.real_images = torch_load(self.real_image_file_name)[0].type(torch.float32).to(
                 self.device) / 255.0 * 2.0 - 1.0
 
+    def plot_loss(self, loss, title, y_label, file_name):
+        plt.figure()
+        plt.plot(loss)
+        plt.ylabel(y_label)
+        plt.title(title)
+        plt.savefig(file_name, format='png')
+        plt.close()
+
     def sample_latent_vector(self, size):
         return torch.rand(size,
                           self.gan_spec.latent_vector_size,
@@ -220,7 +254,7 @@ class MnistGanTasks:
                     D_optim.step()
 
                     if iter_count % self.iter_per_loss_record == 0:
-                        discriminator_loss.append(D_loss[0])
+                        discriminator_loss.append(D_loss.item())
 
                 if iter_count % self.discriminator_iter_per_generator_iter == 0:
                     G.train(True)
@@ -235,7 +269,7 @@ class MnistGanTasks:
                     G.train(True)
                     latent_vectors = self.sample_latent_vector(self.batch_size)
                     G_loss = self.loss_spec.generator_loss(G, D, latent_vectors).detach()
-                    generator_loss.append(G_loss[0])
+                    generator_loss.append(G_loss.item())
 
                 iter_count += 1
                 if iter_count % 100 == 0:
@@ -247,6 +281,7 @@ class MnistGanTasks:
         self.save_generator_loss(generator_loss, save_point-1)
         self.save_discriminator_loss(discriminator_loss, save_point-1)
 
+
     def define_tasks(self):
         self.workspace.create_file_task(self.latent_vector_file_name, [], lambda: self.save_latent_vectors())
 
@@ -257,6 +292,7 @@ class MnistGanTasks:
         sample_images_per_save_point = (self.real_image_count * self.epoch_per_save_point) \
                                        // (self.batch_size * self.iter_per_sample_image)
         sample_image_files = []
+        loss_plot_files = []
         for save_point in range(1, self.save_point_count + 1):
             train_depedencies = [
                 self.latent_vector_file_name,
@@ -294,4 +330,26 @@ class MnistGanTasks:
                                             train_depedencies,
                                             train_func(self, save_point))
 
+            def plot_generator_loss_func(tasks: MnistGanTasks, save_point: int):
+                def plot_it():
+                    tasks.plot_generator_loss(save_point)
+                return plot_it
+
+            self.workspace.create_file_task(self.generator_loss_plot_file_name(save_point-1),
+                                            [self.generator_loss_file_name(save_point-1)],
+                                            plot_generator_loss_func(self, save_point-1))
+            loss_plot_files.append(self.generator_loss_plot_file_name(save_point-1))
+
+            def plot_discriminator_loss_func(tasks: MnistGanTasks, save_point: int):
+                def plot_it():
+                    tasks.plot_discriminator_loss(save_point)
+                return plot_it
+
+            self.workspace.create_file_task(self.discriminator_loss_plot_file_name(save_point-1),
+                                            [self.discriminator_loss_file_name(save_point-1)],
+                                            plot_discriminator_loss_func(self, save_point-1))
+            loss_plot_files.append(self.discriminator_loss_plot_file_name(save_point - 1))
+
+
         self.workspace.create_command_task(self.dir + "/sample_images", sample_image_files)
+        self.workspace.create_command_task(self.dir + "/loss_plots", loss_plot_files)
