@@ -1,8 +1,7 @@
 import torch
 
-from torch.nn import Conv2d, ConvTranspose2d, Linear, Module, Sequential, LeakyReLU
+from torch.nn import Conv2d, ConvTranspose2d, Linear, Module, Sequential, LeakyReLU, AvgPool2d, Upsample
 from torch.nn.init import calculate_gain, _calculate_correct_fan, normal_
-from torch.nn.modules.upsampling import Upsample
 import torch.nn.functional as F
 import math
 
@@ -91,11 +90,20 @@ class Unflatten(Module):
         return input.view(input.shape[0], self.channel, self.height, self.width)
 
 
+class DoubleSize(Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, input):
+        output = F.interpolate(input, scale_factor=2, mode='nearest')
+        return output
+
+
 def is_power2(x):
     return x != 0 and ((x & (x - 1)) == 0)
 
 
-GENERATOR_CHANNEL_COUNT = {
+CHANNEL_COUNT_BY_SIZE = {
     4: 512,
     8: 512,
     16: 512,
@@ -122,18 +130,20 @@ def generator_first_block():
 
 
 def generator_block(block_size, in_channels):
-    out_channels = GENERATOR_CHANNEL_COUNT[block_size]
+    out_channels = CHANNEL_COUNT_BY_SIZE[block_size]
     return Sequential(
-        Upsample(scale_factor=2, mode='nearest'),
+        DoubleSize(),
         PgGanConv2d(in_channels=in_channels,
                     out_channels=out_channels,
                     kernel_size=3,
+                    padding=1,
                     nonlinearity='leaky_relu', nonlinearity_param=0.2),
         LeakyReLU(negative_slope=0.2),
         PixelWiseNorm(),
         PgGanConv2d(in_channels=out_channels,
                     out_channels=out_channels,
                     kernel_size=3,
+                    padding=1,
                     nonlinearity='leaky_relu', nonlinearity_param=0.2),
         LeakyReLU(negative_slope=0.2),
         PixelWiseNorm())
@@ -156,16 +166,24 @@ def create_generator_blocks(gan_module: Module, size):
         add_block(gan_module,
                   "block_%05d" % block_size,
                   generator_block(block_size, input_channels))
-        input_channels = GENERATOR_CHANNEL_COUNT[size]
+        input_channels = CHANNEL_COUNT_BY_SIZE[size]
 
 
 def to_rgb_layer(size: int):
-    return PgGanConv2d(in_channels=GENERATOR_CHANNEL_COUNT[size],
+    return PgGanConv2d(in_channels=CHANNEL_COUNT_BY_SIZE[size],
                        out_channels=3,
                        kernel_size=1,
                        stride=1,
                        padding=0,
                        nonlinearity='linear')
+
+
+def initialize_modules(gan_module: Module):
+    for module in gan_module.modules():
+        if isinstance(module, PgGanConv2d) \
+                or isinstance(module, PgGanConvTranspose2d) \
+                or isinstance(module, PgGanLinear):
+            normal_(module.weight)
 
 
 class PgGanGenerator(GanModule):
@@ -194,7 +212,7 @@ class PgGanGeneratorTransition(GanModule):
         super().__init__()
         assert size >= 4
         assert is_power2(size)
-        self.size = 0
+        self.size = size
         self.alpha = 0.0
         create_generator_blocks(self, size)
         self.to_rgb_layers = [
@@ -206,26 +224,88 @@ class PgGanGeneratorTransition(GanModule):
 
     def forward(self, input):
         value = input
-        for section in self.sections[:-1]:
-            value = section(input)
-        before_last = self.to_rgb_layers[0](F.upsample(value, scale_factor=2))
-        last = self.to_rgb_layers[1](self.sections[-1](value))
+        for block in self.blocks[:-1]:
+            value = block(input)
+        before_last = self.to_rgb_layers[0](F.interpolate(value, scale_factor=2))
+        last = self.to_rgb_layers[1](self.blocks[-1](value))
         return (1.0 - self.alpha) * before_last + self.alpha * last
 
     def initialize(self):
-        for module in self.modules():
-            if isinstance(module, PgGanConv2d):
-                normal_(module.weight)
+        initialize_modules(self)
+
+
+def from_rgb_block(size: int):
+    return Sequential(
+        PgGanConv2d(in_channels=3,
+                    out_channels=CHANNEL_COUNT_BY_SIZE[size],
+                    kernel_size=1,
+                    nonlinearity='leaky_relu',
+                    nonlinearity_param=0.2),
+        LeakyReLU(negative_slope=0.2),
+        PixelWiseNorm())
+
+
+def discriminator_block(size: int):
+    return Sequential(
+        PgGanConv2d(in_channels=CHANNEL_COUNT_BY_SIZE[size * 2],
+                    out_channels=CHANNEL_COUNT_BY_SIZE[size * 2],
+                    kernel_size=3,
+                    padding=1,
+                    nonlinearity='leaky_relu',
+                    nonlinearity_param=0.2),
+        LeakyReLU(negative_slope=0.2),
+        PgGanConv2d(in_channels=CHANNEL_COUNT_BY_SIZE[size * 2],
+                    out_channels=CHANNEL_COUNT_BY_SIZE[size],
+                    kernel_size=3,
+                    padding=1,
+                    nonlinearity='leaky_relu',
+                    nonlinearity_param=0.2),
+        LeakyReLU(negative_slope=0.2),
+        AvgPool2d(kernel_size=2, stride=2))
+
+
+def discriminator_score_block():
+    return Sequential(
+        MiniBatchStddev(),
+        PgGanConv2d(in_channels=513, out_channels=512, kernel_size=3, padding=1,
+                    nonlinearity='leaky_relu', nonlinearity_param=0.2),
+        LeakyReLU(negative_slope=0.2),
+        PgGanConv2d(in_channels=512, out_channels=512, kernel_size=4, padding=0,
+                    nonlinearity='leaky_relu', nonlinearity_param=0.2),
+        LeakyReLU(negative_slope=0.2),
+        Flatten(512),
+        PgGanLinear(in_features=512, out_features=1, nonlinearity='linear'))
+
+
+class PgGanDiscriminator(GanModule):
+    def __init__(self, size):
+        super().__init__()
+        assert size >= 4
+        assert is_power2(size)
+        self.size = size
+
+        add_block(self, "from_rgb_%05d" % size, from_rgb_block(size))
+
+        block_size = size
+        while block_size > 4:
+            add_block(self, "block_%05d" % size, discriminator_block(block_size // 2))
+            block_size //= 2
+
+        add_block(self, "score", discriminator_score_block())
+
+    def forward(self, input):
+        value = input
+        for block in self.blocks:
+            value = block(value)
+        return value
+
+    def initialize(self):
+        initialize_modules(self)
 
 
 if __name__ == "__main__":
     G = PgGanGenerator(8)
-    print(G.blocks[-1].weight.shape)
-    print(G.state_dict().keys())
-    G(torch.zeros(16, 512))
+    print(G(torch.zeros(16, 512)).shape)
 
     GT = PgGanGeneratorTransition(8)
-    print(GT.to_rgb_layers[0].weight.shape)
-    print(GT.to_rgb_layers[0].bias.shape)
-    print(GT.to_rgb_layers[1].weight.shape)
-    print(GT.to_rgb_layers[1].bias.shape)
+    GT(torch.zeros(16, 512))
