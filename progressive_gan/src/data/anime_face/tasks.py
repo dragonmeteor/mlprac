@@ -1,4 +1,3 @@
-import os
 import numpy
 import torch
 import PIL.Image
@@ -6,6 +5,7 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import torch.nn.functional as F
 
+from gans.util import torch_save, torch_load
 from pytasuku import Workspace
 
 IMAGE_COUNT = 21551
@@ -36,17 +36,6 @@ def linear_to_srgb(x):
     x = numpy.clip(x, 0.0, 1.0)
     x_low = (x < 0.0031308).astype(float)
     return x_low * x * 12.92 + (1 - x_low) * ((1 + 0.055) * (x ** (1.0 / 2.4)) - 0.055)
-
-
-def torch_save(content, file_name):
-    os.makedirs(os.path.dirname(file_name), exist_ok=True)
-    with open(file_name, 'wb') as f:
-        torch.save(content, f)
-
-
-def torch_load(file_name):
-    with open(file_name, 'rb') as f:
-        return torch.load(f)
 
 
 def create_image_data_64x64():
