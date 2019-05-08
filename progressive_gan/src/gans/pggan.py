@@ -385,10 +385,24 @@ class PgGanTransition(Gan):
 
 
 if __name__ == "__main__":
-    G = PgGanGenerator(4)
-    for key,value in G.state_dict().items():
+    G4 = PgGanGenerator(4)
+    for key,value in G4.state_dict().items():
         print(key)
         print(value.shape)
+
+    GT8 = PgGanGeneratorTransition(8)
+    GT8.initialize()
+    GT8.load_state_dict(G4.state_dict(), strict=False)
+
+    #print(G4.blocks[0][1].weight - GT8.blocks[0][1].weight)
+    print(len(G4.blocks))
+
+    print(GT8.blocks[1][1].weight)
+    print(len(GT8.blocks))
+
+    G8 = PgGanGenerator(8)
+
+    G8.load_state_dict(GT8.state_dict(), strict=False)
     #print(G(torch.zeros(16, 512)).shape)
 
     #GT = PgGanGeneratorTransition(8)

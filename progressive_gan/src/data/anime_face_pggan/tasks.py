@@ -11,7 +11,7 @@ def define_tasks(workspace: Workspace):
     tasks = PgGanTasks(
         workspace=workspace,
         dir="data/anime_face_pggan",
-        image_size=64,
+        output_image_size=64,
         loss_spec=WganGpLoss(grad_loss_weight=10.0, device=cuda),
         data_loader_func=anime_face_data_loader,
         device=cuda)

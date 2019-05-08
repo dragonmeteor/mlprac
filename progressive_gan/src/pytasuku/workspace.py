@@ -1,4 +1,7 @@
 from enum import Enum
+
+from typing import List
+
 from .task import Task, CommandTask, FileTask, PlaceholderTask
 
 
@@ -137,5 +140,5 @@ class Workspace:
     def create_command_task(self, name, dependencies, func=do_nothing):
         return FuncCommandTask(self, name, dependencies, func)
 
-    def create_file_task(self, name, dependencies, func):
+    def create_file_task(self, name, dependencies: List[str], func):
         return FuncFileTask(self, name, dependencies, func)

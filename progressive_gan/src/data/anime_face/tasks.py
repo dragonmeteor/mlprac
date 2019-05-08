@@ -1,11 +1,9 @@
 import numpy
 import torch
 import PIL.Image
-import matplotlib.pyplot as plt
-import matplotlib.gridspec as gridspec
 import torch.nn.functional as F
 
-from gans.util import torch_save, torch_load
+from gans.util import torch_save, torch_load, srgb_to_linear, save_sample_images
 from pytasuku import Workspace
 
 IMAGE_COUNT = 21551
@@ -24,18 +22,6 @@ def image_data_file_name(size):
 
 def sample_images_file_name(size):
     return DIR + "/sample_images_%02dx%02d.png" % (size, size)
-
-
-def srgb_to_linear(x):
-    x = numpy.clip(x, 0.0, 1.0)
-    x_low = (x < 0.4045).astype(float)
-    return x_low * x / 12.92 + (1 - x_low) * ((x + 0.055) / 1.055) ** 2.4
-
-
-def linear_to_srgb(x):
-    x = numpy.clip(x, 0.0, 1.0)
-    x_low = (x < 0.0031308).astype(float)
-    return x_low * x * 12.92 + (1 - x_low) * ((1 + 0.055) * (x ** (1.0 / 2.4)) - 0.055)
 
 
 def create_image_data_64x64():
@@ -67,27 +53,10 @@ def create_sample_images(size):
     sample_image_indices = torch_load(SAMPLE_IMAGE_INDICES_FILE_NAME)
     n = sample_image_indices.shape[0]
     sample_images = images[sample_image_indices]
-    scale_factor = 64 / images.shape[2]
-    sample_images = F.upsample(sample_images, scale_factor=scale_factor)
-
-    num_rows = n // SAMPLE_IMAGES_PER_ROW
-    if n % SAMPLE_IMAGES_PER_ROW != 0:
-        num_rows += 1
-    plt.figure(figsize=(num_rows, SAMPLE_IMAGES_PER_ROW))
-    gs = gridspec.GridSpec(num_rows, SAMPLE_IMAGES_PER_ROW)
-
-    for i in range(n):
-        ax = plt.subplot(gs[i])
-        plt.axis('off')
-        ax.set_xticklabels([])
-        ax.set_yticklabels([])
-        ax.set_aspect('equal')
-        image = linear_to_srgb(
-            (sample_images[i].numpy().reshape(3, 64 * 64).transpose().reshape(64, 64, 3) + 1.0) / 2.0)
-        plt.imshow(image)
-
-    plt.savefig(sample_images_file_name(size), format="png")
-    plt.close()
+    save_sample_images(sample_images=sample_images,
+                       sample_image_size=64,
+                       sample_images_per_row=SAMPLE_IMAGES_PER_ROW,
+                       file_name=sample_images_file_name(size))
 
 
 def define_tasks(workspace: Workspace):
