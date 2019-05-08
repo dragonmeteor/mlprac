@@ -7,7 +7,7 @@ from torch.utils.data import DataLoader
 
 from gans.gan_loss import GanLoss
 from gans.pggan import LATENT_VECTOR_SIZE, PgGan, PgGanGenerator, PgGanDiscriminator
-from gans.util import is_power2, torch_save, torch_load
+from gans.util import is_power2, torch_save, torch_load, save_sample_images
 from pytasuku import Workspace
 
 DEFAULT_BATCH_SIZE = {
@@ -173,10 +173,17 @@ class PgGanTasks:
             output = self.data_loader_iter.__next__()
         return output
 
+    def sample_images_file_name(self, phase_name: str,
+                                image_size: int,
+                                save_point: int,
+                                index: int) -> str:
+        return self.phase_dir(phase_name, image_size) + ("/sample_images_%03d_%03d.png" % (save_point, index))
+
     def generate_sample_images(self,
                                generator: Module,
                                batch_size: int,
                                phase_name: str,
+                               image_size: int,
                                save_point: int,
                                sample_image_index: int):
         generator.train(False)
@@ -189,8 +196,13 @@ class PgGanTasks:
             else:
                 limit = max(batch_size, self.sample_image_count - sample_images.shape[0])
                 sample_images = torch.cat((sample_images, images[:limit]), dim=0)
-
-        pass
+        save_sample_images(sample_images,
+                           self.output_image_size,
+                           self.sample_image_per_row,
+                           self.sample_images_file_name(phase_name,
+                                                        image_size,
+                                                        save_point,
+                                                        sample_image_index))
 
     def train_stabilize_phase(self, image_size: int, save_point: int):
         previous_rng_state_file_name = self.rng_state_file_name(STABILIZE_PHASE_NAME, image_size, save_point - 1)
@@ -218,7 +230,11 @@ class PgGanTasks:
         print("=== Training Stabilize Phase (image-size=%d, save-point=%d) ===" % (image_size, save_point))
         while sample_count < self.sample_per_save_point:
             if sample_count / self.sample_per_sample_image >= sample_image_index:
-                self.generate_sample_images(G, STABILIZE_PHASE_NAME, save_point - 1, sample_image_index)
+                self.generate_sample_images(G,
+                                            STABILIZE_PHASE_NAME,
+                                            image_size,
+                                            save_point - 1,
+                                            sample_image_index)
                 sample_image_index += 1
 
             if True:
