@@ -430,7 +430,8 @@ class PgGanTasks:
 
                 return train_it
 
-            self.define_savepoint_tasks(image_size,
+            self.define_savepoint_tasks(phase_name,
+                                        image_size,
                                         save_point, dependencies,
                                         train_func(self, save_point))
 
@@ -463,7 +464,7 @@ class PgGanTasks:
                                       previous_discriminator_file_name: str):
         pass
 
-    def define_tasks(self):
+    def define_initial_model_tasks(self):
         self.workspace.create_file_task(
             name=self.latent_vector_file_name,
             dependencies=[],
@@ -480,6 +481,9 @@ class PgGanTasks:
             name=self.initial_discriminator_file_name,
             dependencies=[],
             func=lambda: self.save_initial_model())
+
+    def define_tasks(self):
+        self.define_initial_model_tasks()
 
         self.define_phase_tasks(
             STABILIZE_PHASE_NAME,
@@ -502,6 +506,7 @@ class PgGanTasks:
                 self.rng_state_file_name(TRANSITION_PHASE_NAME, image_size, self.save_point_per_phase),
                 self.generator_file_name(TRANSITION_PHASE_NAME, image_size, self.save_point_per_phase),
                 self.discriminator_file_name(TRANSITION_PHASE_NAME, image_size, self.save_point_per_phase))
+            image_size *= 2
 
         finished_generator_file_name = \
             self.generator_file_name(
@@ -522,3 +527,12 @@ class PgGanTasks:
             self.final_discriminator_file_name,
             [finished_discriminator_file_name],
             lambda: shutil.copyfile(finished_discriminator_file_name, self.final_discriminator_file_name))
+
+        self.workspace.create_command_task(
+            self.dir + "/train",
+            [
+                self.final_generator_file_name,
+                self.final_discriminator_file_name
+            ])
+
+

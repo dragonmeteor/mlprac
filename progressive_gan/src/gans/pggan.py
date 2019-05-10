@@ -330,10 +330,10 @@ class PgGanDiscriminatorTransition(GanModule):
         create_discriminator_blocks(self, size)
 
     def forward(self, input):
-        new_value = self.from_rgb_blocks[1](input)
+        new_value = self.blocks[0](self.from_rgb_blocks[1](input))
         old_value = self.from_rgb_blocks[0](F.avg_pool2d(input, kernel_size=2, stride=2))
         value = (1.0 - self.alpha) * old_value + self.alpha * new_value
-        for block in self.blocks:
+        for block in self.blocks[1]:
             value = block(value)
         return value
 
