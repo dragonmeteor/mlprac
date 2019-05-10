@@ -1,7 +1,7 @@
 import torch
 
-from torch.nn import Conv2d, ConvTranspose2d, Linear, Module, Sequential, LeakyReLU, AvgPool2d
-from torch.nn.init import calculate_gain, _calculate_correct_fan, normal_
+from torch.nn import Conv2d, ConvTranspose2d, Linear, Module, Sequential, LeakyReLU, AvgPool2d, Parameter
+from torch.nn.init import calculate_gain, _calculate_correct_fan, normal_, kaiming_normal_, zeros_
 import torch.nn.functional as F
 import math
 
@@ -11,45 +11,47 @@ from gans.util import is_power2
 LATENT_VECTOR_SIZE = 512
 
 
-class PgGanConv2d(Conv2d):
+class PgGanConv2d(Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1,
                  padding=0, dilation=1, groups=1, bias=True, nonlinearity='leaky_relu', nonlinearity_param=None):
-        super().__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
-        fan = _calculate_correct_fan(self.weight, 'fan_in')
+        super().__init__()
+        self.module = Conv2d(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias)
+        fan = _calculate_correct_fan(self.module.weight, 'fan_in')
         gain = calculate_gain(nonlinearity, nonlinearity_param)
         self.std = gain / math.sqrt(fan)
 
     def forward(self, input):
-        return F.conv2d(input, self.weight * self.std, self.bias, self.stride,
-                        self.padding, self.dilation, self.groups)
+        output = self.module(input)
+        return output * self.std
 
 
-class PgGanConvTranspose2d(ConvTranspose2d):
+class PgGanConvTranspose2d(Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1,
                  padding=0, output_padding=0, groups=1, bias=True, dilation=1,
                  nonlinearity='leaky_relu', nonlinearity_param=None):
-        super().__init__(in_channels, out_channels, kernel_size, stride,
-                         padding, output_padding, groups, bias, dilation)
-        fan = _calculate_correct_fan(self.weight, 'fan_in')
-        gain = calculate_gain(nonlinearity, nonlinearity_param)
-        self.std = gain / math.sqrt(fan)
-
-    def forward(self, input, output_size=None):
-        output_padding = self._output_padding(input, output_size, self.stride, self.padding, self.kernel_size)
-        return F.conv_transpose2d(
-            input, self.weight * self.std, self.bias, self.stride, self.padding,
-            output_padding, self.groups, self.dilation)
-
-
-class PgGanLinear(Linear):
-    def __init__(self, in_features, out_features, bias=True, nonlinearity='leaky_relu', nonlinearity_param=None):
-        super().__init__(in_features, out_features, bias)
-        fan = _calculate_correct_fan(self.weight, 'fan_in')
+        super().__init__()
+        self.module = ConvTranspose2d(in_channels, out_channels, kernel_size, stride,
+                                      padding, output_padding, groups, bias, dilation)
+        fan = _calculate_correct_fan(self.module.weight, 'fan_in')
         gain = calculate_gain(nonlinearity, nonlinearity_param)
         self.std = gain / math.sqrt(fan)
 
     def forward(self, input):
-        return F.linear(input, self.weight * self.std, self.bias)
+        output = self.module(input) * self.std
+        return output
+
+
+class PgGanLinear(Module):
+    def __init__(self, in_features, out_features, bias=True, nonlinearity='leaky_relu', nonlinearity_param=None):
+        super().__init__()
+        self.module = Linear(in_features, out_features, bias)
+        fan = _calculate_correct_fan(self.module.weight, 'fan_in')
+        gain = calculate_gain(nonlinearity, nonlinearity_param)
+        self.std = gain / math.sqrt(fan)
+
+    def forward(self, input):
+        output = self.module(input) * self.std
+        return output
 
 
 class PixelWiseNorm(Module):
@@ -177,10 +179,15 @@ def to_rgb_layer(size: int):
 
 def initialize_modules(gan_module: Module):
     for module in gan_module.modules():
-        if isinstance(module, PgGanConv2d) \
-                or isinstance(module, PgGanConvTranspose2d) \
-                or isinstance(module, PgGanLinear):
-            normal_(module.weight)
+        if isinstance(module, PgGanLinear):
+            normal_(module.module.weight)
+            zeros_(module.module.bias)
+        if isinstance(module, PgGanConv2d):
+            normal_(module.module.weight)
+            zeros_(module.module.bias)
+        if isinstance(module, PgGanConvTranspose2d):
+            normal_(module.module.weight)
+            zeros_(module.module.bias)
 
 
 class PgGanGenerator(GanModule):
@@ -199,9 +206,7 @@ class PgGanGenerator(GanModule):
         return value
 
     def initialize(self):
-        for module in self.modules():
-            if isinstance(module, PgGanConv2d) or isinstance(module, PgGanConvTranspose2d):
-                normal_(module.weight)
+        initialize_modules(self)
 
 
 class PgGanGeneratorTransition(GanModule):
@@ -251,6 +256,7 @@ def discriminator_block(size: int):
                     nonlinearity='leaky_relu',
                     nonlinearity_param=0.2),
         LeakyReLU(negative_slope=0.2),
+        PixelWiseNorm(),
         PgGanConv2d(in_channels=CHANNEL_COUNT_BY_SIZE[size * 2],
                     out_channels=CHANNEL_COUNT_BY_SIZE[size],
                     kernel_size=3,
@@ -258,6 +264,7 @@ def discriminator_block(size: int):
                     nonlinearity='leaky_relu',
                     nonlinearity_param=0.2),
         LeakyReLU(negative_slope=0.2),
+        PixelWiseNorm(),
         AvgPool2d(kernel_size=2, stride=2))
 
 
@@ -267,9 +274,11 @@ def discriminator_score_block():
         PgGanConv2d(in_channels=513, out_channels=512, kernel_size=3, padding=1,
                     nonlinearity='leaky_relu', nonlinearity_param=0.2),
         LeakyReLU(negative_slope=0.2),
+        PixelWiseNorm(),
         PgGanConv2d(in_channels=512, out_channels=512, kernel_size=4, padding=0,
                     nonlinearity='leaky_relu', nonlinearity_param=0.2),
         LeakyReLU(negative_slope=0.2),
+        PixelWiseNorm(),
         Flatten(512),
         PgGanLinear(in_features=512, out_features=1, nonlinearity='linear'))
 
@@ -386,30 +395,31 @@ class PgGanTransition(Gan):
 
 if __name__ == "__main__":
     G4 = PgGanGenerator(4)
-    for key,value in G4.state_dict().items():
-        print(key)
-        print(value.shape)
+    # for key,value in G4.state_dict().items():
+    #    print(key)
+    #    print(value.shape)
+    print(G4.blocks[1].weight.shape)
 
     GT8 = PgGanGeneratorTransition(8)
     GT8.initialize()
     GT8.load_state_dict(G4.state_dict(), strict=False)
 
-    #print(G4.blocks[0][1].weight - GT8.blocks[0][1].weight)
-    print(len(G4.blocks))
+    # print(G4.blocks[0][1].weight - GT8.blocks[0][1].weight)
+    # print(len(G4.blocks))
 
-    print(GT8.blocks[1][1].weight)
-    print(len(GT8.blocks))
+    # print(GT8.blocks[1][1].weight)
+    # print(len(GT8.blocks))
 
     G8 = PgGanGenerator(8)
 
     G8.load_state_dict(GT8.state_dict(), strict=False)
-    #print(G(torch.zeros(16, 512)).shape)
+    # print(G(torch.zeros(16, 512)).shape)
 
-    #GT = PgGanGeneratorTransition(8)
-    #print(GT(torch.zeros(16, 512)).shape)
+    # GT = PgGanGeneratorTransition(8)
+    # print(GT(torch.zeros(16, 512)).shape)
 
-    #D = PgGanDiscriminator(16)
-    #print(D(torch.zeros(8, 3, 16, 16)).shape)
+    # D = PgGanDiscriminator(16)
+    # print(D(torch.zeros(8, 3, 16, 16)).shape)
 
-    #DT = PgGanDiscriminatorTransition(16)
-    #print(D(torch.zeros(8, 3, 16, 16)).shape)
+    # DT = PgGanDiscriminatorTransition(16)
+    # print(D(torch.zeros(8, 3, 16, 16)).shape)

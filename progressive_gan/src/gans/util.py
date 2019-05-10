@@ -39,6 +39,8 @@ def save_sample_images(sample_images: torch.Tensor,
                        file_name: str):
     n = sample_images.shape[0]
     scale_factor = sample_image_size / sample_images.shape[2]
+    #size = sample_images.shape[2]
+    #print(sample_images[0].view(3, size*size).t().view(size, size, 3))
     sample_images = F.upsample(sample_images, scale_factor=scale_factor)
 
     num_rows = n // sample_images_per_row
@@ -53,11 +55,11 @@ def save_sample_images(sample_images: torch.Tensor,
         ax.set_xticklabels([])
         ax.set_yticklabels([])
         ax.set_aspect('equal')
-        image = linear_to_srgb(
-            (sample_images[i].numpy()
-             .reshape(3, sample_image_size * sample_image_size)
-             .transpose()
-             .reshape(sample_image_size, sample_image_size, 3) + 1.0) / 2.0)
+        sample_image_linear = (sample_images[i].numpy()
+            .reshape(3, sample_image_size * sample_image_size)
+            .transpose()
+            .reshape(sample_image_size, sample_image_size, 3) + 1.0) / 2.0
+        image = linear_to_srgb(sample_image_linear)
         plt.imshow(image)
 
     plt.savefig(file_name, format="png")
