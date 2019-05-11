@@ -227,7 +227,7 @@ class PgGanGeneratorTransition(GanModule):
     def forward(self, input):
         value = input
         for block in self.blocks[:-1]:
-            value = block(input)
+            value = block(value)
         before_last = self.to_rgb_layers[0](F.interpolate(value, scale_factor=2))
         last = self.to_rgb_layers[1](self.blocks[-1](value))
         return (1.0 - self.alpha) * before_last + self.alpha * last
@@ -286,7 +286,7 @@ def discriminator_score_block():
 def create_discriminator_blocks(gan_module: Module, size: int):
     block_size = size
     while block_size > 4:
-        add_block(gan_module, "block_%05d" % size, discriminator_block(block_size // 2))
+        add_block(gan_module, "block_%05d" % block_size, discriminator_block(block_size // 2))
         block_size //= 2
     add_block(gan_module, "score", discriminator_score_block())
 
@@ -330,10 +330,11 @@ class PgGanDiscriminatorTransition(GanModule):
         create_discriminator_blocks(self, size)
 
     def forward(self, input):
-        new_value = self.blocks[0](self.from_rgb_blocks[1](input))
+        input_rgb = self.from_rgb_blocks[1](input)
+        new_value = self.blocks[0](input_rgb)
         old_value = self.from_rgb_blocks[0](F.avg_pool2d(input, kernel_size=2, stride=2))
         value = (1.0 - self.alpha) * old_value + self.alpha * new_value
-        for block in self.blocks[1]:
+        for block in self.blocks[1:]:
             value = block(value)
         return value
 
@@ -394,15 +395,22 @@ class PgGanTransition(Gan):
 
 
 if __name__ == "__main__":
-    G4 = PgGanGenerator(4)
+    #D16 = PgGanDiscriminator(16)
+    #D16.initialize()
+    DT16 = PgGanDiscriminatorTransition(16)
+    DT16.initialize()
+    print(DT16(torch.Tensor(4,3,16,16)).shape)
+
+
+    #G4 = PgGanGenerator(4)
     # for key,value in G4.state_dict().items():
     #    print(key)
     #    print(value.shape)
-    print(G4.blocks[1].weight.shape)
+    #print(G4.blocks[1].weight.shape)
 
-    GT8 = PgGanGeneratorTransition(8)
-    GT8.initialize()
-    GT8.load_state_dict(G4.state_dict(), strict=False)
+    #GT8 = PgGanGeneratorTransition(8)
+    #GT8.initialize()
+    #GT8.load_state_dict(G4.state_dict(), strict=False)
 
     # print(G4.blocks[0][1].weight - GT8.blocks[0][1].weight)
     # print(len(G4.blocks))
@@ -410,9 +418,9 @@ if __name__ == "__main__":
     # print(GT8.blocks[1][1].weight)
     # print(len(GT8.blocks))
 
-    G8 = PgGanGenerator(8)
+    #G8 = PgGanGenerator(8)
 
-    G8.load_state_dict(GT8.state_dict(), strict=False)
+    #G8.load_state_dict(GT8.state_dict(), strict=False)
     # print(G(torch.zeros(16, 512)).shape)
 
     # GT = PgGanGeneratorTransition(8)

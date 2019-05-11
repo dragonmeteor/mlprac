@@ -1,5 +1,6 @@
 import shutil
 import torch
+import time
 from typing import Callable, Dict, List
 
 import matplotlib.pyplot as plt
@@ -176,6 +177,7 @@ class PgGanTasks:
             G = PgGanGeneratorTransition(image_size).to(self.device)
         G.initialize()
         G.load_state_dict(torch_load(previous_generator_file_name), strict=False)
+        G = G.to(self.device)
         torch_save(G.state_dict(), self.generator_file_name(phase_name, image_size, 0))
 
         if phase_name == STABILIZE_PHASE_NAME:
@@ -184,6 +186,7 @@ class PgGanTasks:
             D = PgGanDiscriminatorTransition(image_size).to(self.device)
         D.initialize()
         D.load_state_dict(torch_load(previous_discriminator_file_name), strict=False)
+        D = D.to(self.device)
         torch_save(D.state_dict(), self.discriminator_file_name(phase_name, image_size, 0))
 
         G_optim = Adam(G.parameters(), lr=self.learning_rate, betas=self.generator_betas)
@@ -226,13 +229,9 @@ class PgGanTasks:
             else:
                 limit = max(batch_size, self.sample_image_count - sample_images.shape[0])
                 sample_images = torch.cat((sample_images, images[:limit]), dim=0)
-        save_sample_images(sample_images.detach().cpu(),
-                           self.output_image_size,
-                           self.sample_image_per_row,
-                           self.sample_images_file_name(phase_name,
-                                                        image_size,
-                                                        save_point,
-                                                        sample_image_index))
+        file_name = self.sample_images_file_name(phase_name, image_size, save_point, sample_image_index)
+        save_sample_images(sample_images.detach().cpu(), self.output_image_size, self.sample_image_per_row, file_name)
+        print("Saved %s" % file_name)
 
     def optimizer_to_device(self, optim):
         for state in optim.state.values():
@@ -256,12 +255,15 @@ class PgGanTasks:
         else:
             G = PgGanGeneratorTransition(image_size).to(self.device)
         G.load_state_dict(torch_load(previous_generator_file_name))
+        G = G.to(self.device)
 
         if phase_name == STABILIZE_PHASE_NAME:
             D = PgGanDiscriminator(image_size).to(self.device)
         else:
             D = PgGanDiscriminatorTransition(image_size).to(self.device)
         D.load_state_dict(torch_load(previous_discriminator_file_name))
+        D = D.to(self.device)
+
 
         G_optim = Adam(G.parameters(), lr=self.learning_rate, betas=self.generator_betas)
         G_optim.load_state_dict(torch_load(previous_generator_optimizer_state_file_name))
@@ -284,6 +286,7 @@ class PgGanTasks:
         total_iter_index = (save_point - 1) * self.iter_per_save_point(image_size)
         total_iter_count = self.iter_per_save_point(image_size) * self.save_point_per_phase
         print("=== Training %s Phase (image-size=%d, save-point=%d) ===" % (phase_name, image_size, save_point))
+        last_time = time.time()
         while sample_count < self.sample_per_save_point:
             if phase_name == TRANSITION_PHASE_NAME:
                 alpha = total_iter_index * 1.0 / total_iter_count
@@ -325,8 +328,13 @@ class PgGanTasks:
 
             iter_index += 1
             total_iter_index += 1
-            if iter_index % 100 == 0:
-                print("Showed %d real images ..." % (iter_index * batch_size))
+            now = time.time()
+            if now - last_time > 10:
+                if phase_name == STABILIZE_PHASE_NAME:
+                    print("Showed %d real images ..." % (iter_index * batch_size))
+                else:
+                    print("Showed %d real images (alpha=%f) ..." % (iter_index * batch_size, alpha))
+                last_time = now
 
         torch_save(G.state_dict(), self.generator_file_name(phase_name, image_size, save_point))
         torch_save(D.state_dict(), self.discriminator_file_name(phase_name, image_size, save_point))
@@ -534,5 +542,3 @@ class PgGanTasks:
                 self.final_generator_file_name,
                 self.final_discriminator_file_name
             ])
-
-
