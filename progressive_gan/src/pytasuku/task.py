@@ -56,7 +56,7 @@ class PlaceholderTask(Task):
         return False
 
     def run(self):
-        raise Exception("A  placeholder task cannot be run!")
+        raise Exception("A  placeholder task cannot be run! (%s)" % self.name)
 
     @property
     def needs_to_be_run(self):

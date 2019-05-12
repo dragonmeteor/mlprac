@@ -15,16 +15,27 @@ from gans.pggan import LATENT_VECTOR_SIZE, PgGan, PgGanGenerator, PgGanDiscrimin
 from gans.util import is_power2, torch_save, torch_load, save_sample_images
 from pytasuku import Workspace
 
+# DEFAULT_BATCH_SIZE = {
+#    4: 32,
+#    8: 16,
+#    16: 16,
+#    32: 16,
+#    64: 16,
+#    128: 16,
+#    256: 8,
+#    512: 4,
+#    1024: 4
+# }
 DEFAULT_BATCH_SIZE = {
     4: 32,
-    8: 16,
-    16: 16,
-    32: 16,
-    64: 16,
+    8: 32,
+    16: 32,
+    32: 32,
+    64: 32,
     128: 16,
-    256: 8,
-    512: 4,
-    1024: 4
+    256: 16,
+    512: 8,
+    1024: 8
 }
 
 STABILIZE_PHASE_NAME = "stabilize"
@@ -47,7 +58,8 @@ class PgGanTasks:
                  sample_per_loss_record=1000,
                  sample_per_save_point=100000,
                  save_point_per_phase=6,
-                 learning_rate=1e-4,
+                 discriminator_learning_rate=1e-4,
+                 generator_learning_rate=5e-4,
                  generator_betas=(0, 0.999),
                  discriminator_betas=(0, 0.999),
                  device=torch.device('cpu')):
@@ -82,7 +94,8 @@ class PgGanTasks:
         self.sample_per_save_point = sample_per_save_point
         self.save_point_per_phase = save_point_per_phase
 
-        self.learning_rate = learning_rate
+        self.discriminator_learning_rate = discriminator_learning_rate
+        self.generator_learning_rate = generator_learning_rate
         self.generator_betas = generator_betas
         self.discriminator_betas = discriminator_betas
 
@@ -132,9 +145,9 @@ class PgGanTasks:
         return self.phase_dir(phase_name, image_size) + ("/generator_optimizer_state_%03d.pt" % save_point)
 
     def sample_latent_vectors(self, count):
-        return torch.rand(count,
-                          LATENT_VECTOR_SIZE,
-                          device=self.device) * 2.0 - 1.0
+        return torch.randn(count,
+                           LATENT_VECTOR_SIZE,
+                           device=self.device)
 
     def save_latent_vectors(self):
         torch.manual_seed(self.latent_vector_seed)
@@ -189,11 +202,11 @@ class PgGanTasks:
         D = D.to(self.device)
         torch_save(D.state_dict(), self.discriminator_file_name(phase_name, image_size, 0))
 
-        G_optim = Adam(G.parameters(), lr=self.learning_rate, betas=self.generator_betas)
+        G_optim = Adam(G.parameters(), lr=self.generator_learning_rate, betas=self.generator_betas)
         torch_save(G_optim.state_dict(),
                    self.generator_optimizer_state_file_name(phase_name, image_size, 0))
 
-        D_optim = Adam(D.parameters(), lr=self.learning_rate, betas=self.discriminator_betas)
+        D_optim = Adam(D.parameters(), lr=self.discriminator_learning_rate, betas=self.discriminator_betas)
         torch_save(D_optim.state_dict(),
                    self.discriminator_optimizer_state_file_name(phase_name, image_size, 0))
 
@@ -222,7 +235,7 @@ class PgGanTasks:
         generator.train(False)
         sample_images = None
         while (sample_images is None) or (sample_images.shape[0] < self.sample_image_count):
-            latent_vectors = self.sample_latent_vectors(batch_size)
+            latent_vectors = torch_load(self.latent_vector_file_name)
             images = generator(latent_vectors)
             if sample_images is None:
                 sample_images = images
@@ -264,12 +277,11 @@ class PgGanTasks:
         D.load_state_dict(torch_load(previous_discriminator_file_name))
         D = D.to(self.device)
 
-
-        G_optim = Adam(G.parameters(), lr=self.learning_rate, betas=self.generator_betas)
+        G_optim = Adam(G.parameters(), lr=self.generator_learning_rate, betas=self.generator_betas)
         G_optim.load_state_dict(torch_load(previous_generator_optimizer_state_file_name))
         self.optimizer_to_device(G_optim)
 
-        D_optim = Adam(D.parameters(), lr=self.learning_rate, betas=self.discriminator_betas)
+        D_optim = Adam(D.parameters(), lr=self.discriminator_learning_rate, betas=self.discriminator_betas)
         D_optim.load_state_dict(torch_load(previous_discriminator_optimizer_state_file_name))
         self.optimizer_to_device(D_optim)
 
@@ -313,7 +325,6 @@ class PgGanTasks:
             if True:
                 latent_vectors = self.sample_latent_vectors(batch_size)
                 G.train(True)
-                D.zero_grad()
                 G.zero_grad()
                 G_loss = self.loss_spec.generator_loss(G, D, latent_vectors)
                 G_loss.backward()
@@ -372,7 +383,7 @@ class PgGanTasks:
             func=func)
         if save_point > 0:
             self.workspace.create_file_task(
-                name=self.generator_loss_plot_file_name(phase_name, image_size, save_point - 1),
+                name=self.generator_loss_file_name(phase_name, image_size, save_point - 1),
                 dependencies=dependencies,
                 func=func)
             self.workspace.create_file_task(
@@ -389,15 +400,27 @@ class PgGanTasks:
         plt.close()
 
     def plot_generator_loss(self, phase_name: str, image_size: int, save_point: int):
-        loss = torch_load(self.generator_loss_file_name(phase_name, image_size, save_point)).numpy()
-        self.plot_loss(loss,
+        loss = None
+        for i in range(save_point + 1):
+            new_loss = torch_load(self.generator_loss_file_name(phase_name, image_size, i))
+            if loss is None:
+                loss = new_loss
+            else:
+                loss = torch.cat((loss, new_loss), dim=0)
+        self.plot_loss(loss.numpy(),
                        "Generator Loss (image_size=%d, save_point=%d)" % (image_size, save_point),
                        "Loss",
                        self.generator_loss_plot_file_name(phase_name, image_size, save_point))
 
     def plot_discriminator_loss(self, phase_name: str, image_size: int, save_point: int):
-        loss = torch_load(self.discriminator_loss_file_name(phase_name, image_size, save_point)).numpy()
-        self.plot_loss(loss,
+        loss = None
+        for i in range(save_point + 1):
+            new_loss = torch_load(self.discriminator_loss_file_name(phase_name, image_size, i))
+            if loss is None:
+                loss = new_loss
+            else:
+                loss = torch.cat((loss, new_loss), dim=0)
+        self.plot_loss(loss.numpy(),
                        "Discriminator Loss (image_size=%d, save_point=%d)" % (image_size, save_point),
                        "Loss",
                        self.discriminator_loss_plot_file_name(phase_name, image_size, save_point))
@@ -411,12 +434,14 @@ class PgGanTasks:
         for save_point in range(self.save_point_per_phase + 1):
             if save_point == 0:
                 dependencies = [
+                    self.latent_vector_file_name,
                     previous_rng_state_file_name,
                     previous_generator_file_name,
                     previous_discriminator_file_name
                 ]
             else:
                 dependencies = [
+                    self.latent_vector_file_name,
                     self.rng_state_file_name(phase_name, image_size, save_point - 1),
                     self.generator_file_name(phase_name, image_size, save_point - 1),
                     self.discriminator_file_name(phase_name, image_size, save_point - 1),
@@ -458,11 +483,12 @@ class PgGanTasks:
         for save_point in range(self.save_point_per_phase):
             self.workspace.create_file_task(
                 name=self.generator_loss_plot_file_name(phase_name, image_size, save_point),
-                dependencies=[self.generator_loss_file_name(phase_name, image_size, save_point)],
+                dependencies=[self.generator_loss_file_name(phase_name, image_size, i) for i in range(save_point + 1)],
                 func=plot_generator_loss_func(self, save_point))
             self.workspace.create_file_task(
                 name=self.discriminator_loss_plot_file_name(phase_name, image_size, save_point),
-                dependencies=[self.discriminator_loss_file_name(phase_name, image_size, save_point)],
+                dependencies=[self.discriminator_loss_file_name(phase_name, image_size, i) for i in
+                              range(save_point + 1)],
                 func=plot_discriminator_loss_func(self, save_point))
 
     def define_transition_phase_tasks(self,
@@ -542,3 +568,20 @@ class PgGanTasks:
                 self.final_generator_file_name,
                 self.final_discriminator_file_name
             ])
+
+        loss_plot_files = []
+        size = 4
+        while size <= self.output_image_size:
+            if size > 4:
+                for i in range(self.save_point_per_phase):
+                    loss_plot_files.append(self.generator_loss_plot_file_name(TRANSITION_PHASE_NAME, size, i))
+                    loss_plot_files.append(self.discriminator_loss_plot_file_name(TRANSITION_PHASE_NAME, size, i))
+            for i in range(self.save_point_per_phase):
+                loss_plot_files.append(self.generator_loss_plot_file_name(STABILIZE_PHASE_NAME, size, i))
+                loss_plot_files.append(self.discriminator_loss_plot_file_name(STABILIZE_PHASE_NAME, size, i))
+            size *= 2
+
+        self.workspace.create_command_task(
+            self.dir + "/loss_plots",
+            loss_plot_files
+        )

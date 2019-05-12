@@ -21,8 +21,9 @@ class PgGanConv2d(Module):
         self.std = gain / math.sqrt(fan)
 
     def forward(self, input):
-        output = self.module(input)
-        return output * self.std
+        #output = self.module(input)
+        #return output * self.std
+        return self.module(input)
 
 
 class PgGanConvTranspose2d(Module):
@@ -37,8 +38,9 @@ class PgGanConvTranspose2d(Module):
         self.std = gain / math.sqrt(fan)
 
     def forward(self, input):
-        output = self.module(input) * self.std
-        return output
+        #output = self.module(input) * self.std
+        #return output
+        return self.module(input)
 
 
 class PgGanLinear(Module):
@@ -51,7 +53,9 @@ class PgGanLinear(Module):
 
     def forward(self, input):
         output = self.module(input) * self.std
-        return output
+        #return output
+        #return output
+        return self.module(input)
 
 
 class PixelWiseNorm(Module):
@@ -60,7 +64,8 @@ class PixelWiseNorm(Module):
         self.epsilon = epsilon
 
     def forward(self, input: torch.Tensor):
-        return input * (input.mul(input).sum(dim=1, keepdim=True) + self.epsilon).rsqrt()
+        #return input / ((input ** 2).mean(dim=1, keepdim=True) + self.epsilon).sqrt()
+        return input
 
 
 class MiniBatchStddev(Module):
@@ -179,15 +184,16 @@ def to_rgb_layer(size: int):
 
 def initialize_modules(gan_module: Module):
     for module in gan_module.modules():
-        if isinstance(module, PgGanLinear):
-            normal_(module.module.weight)
-            zeros_(module.module.bias)
-        if isinstance(module, PgGanConv2d):
-            normal_(module.module.weight)
-            zeros_(module.module.bias)
-        if isinstance(module, PgGanConvTranspose2d):
-            normal_(module.module.weight)
-            zeros_(module.module.bias)
+        if False:
+            if isinstance(module, PgGanLinear):
+                normal_(module.module.weight)
+                zeros_(module.module.bias)
+            if isinstance(module, PgGanConv2d):
+                normal_(module.module.weight)
+                zeros_(module.module.bias)
+            if isinstance(module, PgGanConvTranspose2d):
+                normal_(module.module.weight)
+                zeros_(module.module.bias)
 
 
 class PgGanGenerator(GanModule):
@@ -270,9 +276,11 @@ def discriminator_block(size: int):
 
 def discriminator_score_block():
     return Sequential(
-        MiniBatchStddev(),
-        PgGanConv2d(in_channels=513, out_channels=512, kernel_size=3, padding=1,
-                    nonlinearity='leaky_relu', nonlinearity_param=0.2),
+        #MiniBatchStddev(),
+        #PgGanConv2d(in_channels=513, out_channels=512, kernel_size=3, padding=1,
+        #            nonlinearity='leaky_relu', nonlinearity_param=0.2),
+        PgGanConv2d(in_channels=512, out_channels=512, kernel_size=3, padding=1,
+                   nonlinearity='leaky_relu', nonlinearity_param=0.2),
         LeakyReLU(negative_slope=0.2),
         PixelWiseNorm(),
         PgGanConv2d(in_channels=512, out_channels=512, kernel_size=4, padding=0,
@@ -395,11 +403,42 @@ class PgGanTransition(Gan):
 
 
 if __name__ == "__main__":
-    #D16 = PgGanDiscriminator(16)
-    #D16.initialize()
-    DT16 = PgGanDiscriminatorTransition(16)
-    DT16.initialize()
-    print(DT16(torch.Tensor(4,3,16,16)).shape)
+    size = 4
+    while size <= 64:
+        if size > 4:
+            D = PgGanDiscriminatorTransition(size)
+            print("DiscriminatorTransition(%d)" % size)
+            for name in D.state_dict().keys():
+                print(name)
+            print()
+
+        D = PgGanDiscriminator(size)
+        print("Discriminator(%d)" % size)
+        for name in D.state_dict().keys():
+            print(name)
+        print()
+
+        size *= 2
+
+    size = 4
+    while size <= 64:
+        if size > 4:
+            G = PgGanGeneratorTransition(size)
+            print("GeneratorTransition(%d)" % size)
+            for name in G.state_dict().keys():
+                print(name)
+            print()
+
+        G = PgGanGenerator(size)
+        print("Generator(%d)" % size)
+        for name in G.state_dict().keys():
+            print(name)
+        print()
+
+        size *= 2
+
+
+    #print(DT16(torch.Tensor(4,3,16,16)).shape)
 
 
     #G4 = PgGanGenerator(4)

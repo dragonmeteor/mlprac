@@ -1,17 +1,17 @@
 import abc
 
 import torch
+from torch.nn.functional import binary_cross_entropy_with_logits
 
 from gans.gan_loss import GanLoss
 
 
-class WganGpWithDriftLoss(GanLoss):
+class ZeroGpLoss(GanLoss):
     __metaclass__ = abc.ABCMeta
 
-    def __init__(self, grad_loss_weight: float = 10.0, drift_weight = 1e-3, device=torch.device('cpu')):
+    def __init__(self, grad_loss_weight: float = 10.0, device=torch.device('cpu')):
         super().__init__(device)
         self.grad_loss_weight = grad_loss_weight
-        self.drift_weight = drift_weight
 
     def discriminator_loss(self,
                            G: torch.nn.Module,
@@ -21,7 +21,7 @@ class WganGpWithDriftLoss(GanLoss):
         n = real_image.shape[0]
         assert latent_vector.shape[0] == n
         sample_size = 1
-        for i in range(1,len(real_image.shape)):
+        for i in range(1, len(real_image.shape)):
             sample_size *= real_image.shape[i]
 
         fake_image = G(latent_vector).detach()
@@ -38,15 +38,16 @@ class WganGpWithDriftLoss(GanLoss):
                                                 create_graph=True,
                                                 retain_graph=True)[0]
         grad_norm = interpolates_grad.view(n, sample_size).norm(2, dim=1)
-        grad_diff = grad_norm - 1.0
-        grad_loss = grad_diff.mul(grad_diff).mean() * self.grad_loss_weight
+        grad_loss = (grad_norm ** 2).mean() * self.grad_loss_weight
 
-        D_real = D(real_image)
-        real_loss = D_real.mean()
-        fake_loss = D(fake_image).mean()
-        drift_loss = D_real.mul(D_real).mean() * self.drift_weight
+        real_logit = D(real_image)
+        fake_logit = D(fake_image)
+        zeros = torch.zeros(n, 1, device=self.device, requires_grad=False)
+        ones = torch.ones(n, 1, device=self.device, requires_grad=False)
+        real_loss = binary_cross_entropy_with_logits(real_logit, ones)
+        fake_loss = binary_cross_entropy_with_logits(fake_logit, zeros)
 
-        return -real_loss + fake_loss + grad_loss + drift_loss
+        return real_loss + fake_loss + grad_loss
 
     def create_interpolates(self,
                             real_image: torch.Tensor,
@@ -66,21 +67,7 @@ class WganGpWithDriftLoss(GanLoss):
                        G: torch.nn.Module,
                        D: torch.nn.Module,
                        latent_vector: torch.Tensor) -> torch.Tensor:
-        return D(G(latent_vector)).mean() * -1.0
+        fake_logit = D(G(latent_vector))
+        ones = torch.ones(latent_vector.shape[0], 1, device=self.device, requires_grad=False)
+        return binary_cross_entropy_with_logits(fake_logit, ones)
 
-
-if __name__ == "__main__":
-    wgan_gp_loss = WganGpWithDriftLoss()
-
-    real_image = torch.Tensor([
-        [1, 0, 0, 0, 0, 0],
-        [0, 1, 0, 0, 0, 0],
-        [0, 0, 1, 0, 0, 0],
-    ])
-    fake_image = torch.Tensor([
-        [0, 0, 0, 1, 0, 0],
-        [0, 0, 0, 0, 1, 0],
-        [0, 0, 0, 0, 0, 1]
-    ])
-
-    print(wgan_gp_loss.create_interpolates(real_image, fake_image))
