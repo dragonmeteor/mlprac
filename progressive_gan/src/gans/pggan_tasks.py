@@ -230,21 +230,28 @@ class PgGanTasks:
                                 index: int) -> str:
         return self.phase_dir(phase_name, image_size) + ("/sample_images_%03d_%03d.png" % (save_point, index))
 
-    def generate_sample_images(self, generator: Module, phase_name: str,
-                               batch_size: int, image_size: int, save_point: int, sample_image_index: int):
+    def generate_sample_images_from_latent_vectors(self, generator: Module, latent_vectors: torch.Tensor, batch_size: int, file_name: str):
         generator.train(False)
         sample_images = None
         while (sample_images is None) or (sample_images.shape[0] < self.sample_image_count):
-            latent_vectors = torch_load(self.latent_vector_file_name)
-            images = generator(latent_vectors)
+            if sample_images is None:
+                vectors = latent_vectors[:batch_size]
+            else:
+                limit = max(batch_size, self.sample_image_count - sample_images.shape[0])
+                vectors = latent_vectors[sample_images.shape[0]:sample_images.shape[0]+limit]
+            images = generator(vectors)
             if sample_images is None:
                 sample_images = images
             else:
-                limit = max(batch_size, self.sample_image_count - sample_images.shape[0])
-                sample_images = torch.cat((sample_images, images[:limit]), dim=0)
-        file_name = self.sample_images_file_name(phase_name, image_size, save_point, sample_image_index)
+                sample_images = torch.cat((sample_images, images), dim=0)
         save_sample_images(sample_images.detach().cpu(), self.output_image_size, self.sample_image_per_row, file_name)
         print("Saved %s" % file_name)
+
+    def generate_sample_images(self, generator: Module, phase_name: str,
+                               batch_size: int, image_size: int, save_point: int, sample_image_index: int):
+        file_name = self.sample_images_file_name(phase_name, image_size, save_point, sample_image_index)
+        latent_vectors = torch_load(self.latent_vector_file_name)
+        self.generate_sample_images_from_latent_vectors(generator, latent_vectors, batch_size, file_name)
 
     def optimizer_to_device(self, optim):
         for state in optim.state.values():
