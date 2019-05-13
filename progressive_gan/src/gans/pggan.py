@@ -170,7 +170,7 @@ def create_generator_blocks(gan_module: Module, size):
         add_block(gan_module,
                   "block_%05d" % block_size,
                   generator_block(block_size, input_channels))
-        input_channels = CHANNEL_COUNT_BY_SIZE[size]
+        input_channels = CHANNEL_COUNT_BY_SIZE[block_size]
 
 
 def to_rgb_layer(size: int):
@@ -224,7 +224,7 @@ class PgGanGeneratorTransition(GanModule):
         self.alpha = 0.0
         create_generator_blocks(self, size)
         self.to_rgb_layers = [
-            to_rgb_layer(size),
+            to_rgb_layer(size // 2),
             to_rgb_layer(size)
         ]
         self.add_module("to_rgb_%05d" % (self.size // 2), self.to_rgb_layers[0])
