@@ -52,7 +52,7 @@ class PgGanLinear(Module):
         self.std = gain / math.sqrt(fan)
 
     def forward(self, input):
-        output = self.module(input) * self.std
+        #output = self.module(input) * self.std
         #return output
         #return output
         return self.module(input)

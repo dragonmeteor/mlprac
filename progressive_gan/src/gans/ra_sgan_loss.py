@@ -6,7 +6,7 @@ from torch.nn.functional import binary_cross_entropy_with_logits
 from gans.gan_loss import GanLoss
 
 
-class ZeroGpLoss(GanLoss):
+class RaSGanLoss(GanLoss):
     __metaclass__ = abc.ABCMeta
 
     def __init__(self, grad_loss_weight: float = 10.0, device=torch.device('cpu')):
@@ -20,12 +20,22 @@ class ZeroGpLoss(GanLoss):
                            latent_vector: torch.Tensor) -> torch.Tensor:
         n = real_image.shape[0]
         assert latent_vector.shape[0] == n
+
+        fake_image = G(latent_vector)
+
+        C_real = D(real_image)
+        C_fake = D(fake_image)
+
+        D_real = C_real - C_fake.mean()
+        D_fake = C_fake - C_real.mean()
+        zeros = torch.zeros(n, 1, device=self.device, requires_grad=False)
+        ones = torch.ones(n, 1, device=self.device, requires_grad=False)
+        real_loss = binary_cross_entropy_with_logits(D_real, ones)
+        fake_loss = binary_cross_entropy_with_logits(D_fake, zeros)
+
         sample_size = 1
         for i in range(1, len(real_image.shape)):
             sample_size *= real_image.shape[i]
-
-        fake_image = G(latent_vector).detach()
-
         interpolates = self.create_interpolates(real_image, fake_image)
         interpolates.requires_grad_(True)
         grad_outputs = torch.ones([n, 1], device=self.device)
@@ -38,13 +48,6 @@ class ZeroGpLoss(GanLoss):
                                                 retain_graph=True)[0]
         grad_norm = interpolates_grad.view(n, sample_size).norm(2, dim=1)
         grad_loss = (grad_norm ** 2).mean() * self.grad_loss_weight
-
-        real_logit = D(real_image)
-        fake_logit = D(fake_image)
-        zeros = torch.zeros(n, 1, device=self.device, requires_grad=False)
-        ones = torch.ones(n, 1, device=self.device, requires_grad=False)
-        real_loss = binary_cross_entropy_with_logits(real_logit, ones)
-        fake_loss = binary_cross_entropy_with_logits(fake_logit, zeros)
 
         return real_loss + fake_loss + grad_loss
 
@@ -62,11 +65,24 @@ class ZeroGpLoss(GanLoss):
         return (combined_permuted[:n] * alpha
                 + combined_permuted[n:] * (1 - alpha)).detach()
 
+
     def generator_loss(self,
                        G: torch.nn.Module,
                        D: torch.nn.Module,
+                       real_image: torch.Tensor,
                        latent_vector: torch.Tensor) -> torch.Tensor:
-        fake_logit = D(G(latent_vector))
-        ones = torch.ones(latent_vector.shape[0], 1, device=self.device, requires_grad=False)
-        return binary_cross_entropy_with_logits(fake_logit, ones)
+        n = real_image.shape[0]
+        assert latent_vector.shape[0] == n
 
+        fake_image = G(latent_vector)
+
+        C_real = D(real_image)
+        C_fake = D(fake_image)
+
+        D_real = C_real - C_fake.mean()
+        D_fake = C_fake - C_real.mean()
+        zeros = torch.zeros(n, 1, device=self.device, requires_grad=False)
+        ones = torch.ones(n, 1, device=self.device, requires_grad=False)
+        real_loss = binary_cross_entropy_with_logits(D_real, zeros)
+        fake_loss = binary_cross_entropy_with_logits(D_fake, ones)
+        return real_loss + fake_loss

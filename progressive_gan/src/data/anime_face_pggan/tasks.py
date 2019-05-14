@@ -6,6 +6,7 @@ from torch.optim import Adam
 from data.anime_face.data_loader import anime_face_data_loader
 from gans.pggan import PgGanGenerator
 from gans.pggan_tasks import PgGanTasks, STABILIZE_PHASE_NAME, TRANSITION_PHASE_NAME
+from gans.ra_sgan_loss import RaSGanLoss
 from gans.util import torch_save, torch_load
 from gans.zero_gp_loss import ZeroGpLoss
 from pytasuku import Workspace
@@ -219,3 +220,17 @@ def define_tasks(workspace: Workspace):
     TrainingVideoTasks(workspace, pg_gan_tasks.dir + "/training_video", pg_gan_tasks).define_tasks()
 
     InterpolationVideoTasks(workspace, pg_gan_tasks.dir + "/interpolation", pg_gan_tasks).define_tasks()
+
+    pg_gan_ra_tasks = PgGanTasks(
+        workspace=workspace,
+        dir="data/anime_face_pggan_ra",
+        output_image_size=64,
+        loss_spec=RaSGanLoss(device=cuda, grad_loss_weight=100),
+        data_loader_func=anime_face_data_loader,
+        device=cuda,
+        save_point_per_phase=4,
+        generator_learning_rate=1e-4,
+        discriminator_learning_rate=1e-4,
+        generator_betas=(0.5, 0.99),
+        discriminator_betas=(0.5, 0.99))
+    pg_gan_ra_tasks.define_tasks()

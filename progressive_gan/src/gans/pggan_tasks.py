@@ -31,7 +31,7 @@ DEFAULT_BATCH_SIZE = {
     8: 32,
     16: 32,
     32: 32,
-    64: 32,
+    64: 16,
     128: 16,
     256: 16,
     512: 8,
@@ -212,16 +212,28 @@ class PgGanTasks:
 
         self.save_rng_state(self.rng_state_file_name(phase_name, image_size, 0))
 
-    def get_next_real_image_batch(self, image_size: int, batch_size: int) -> torch.Tensor:
-        if self.data_loader is None:
-            self.data_loader = self.data_loader_func(image_size, batch_size, self.device)
-        if self.data_loader_iter is None:
-            self.data_loader_iter = self.data_loader.__iter__()
+    def get_discriminator_next_real_image_batch(self, image_size: int, batch_size: int) -> torch.Tensor:
+        if self.discriminator_data_loader is None:
+            self.discriminator_data_loader = self.data_loader_func(image_size, batch_size, self.device)
+        if self.discriminator_data_loader_iter is None:
+            self.discriminator_data_loader_iter = self.discriminator_data_loader.__iter__()
         try:
-            output = self.data_loader_iter.__next__()[0]
+            output = self.discriminator_data_loader_iter.__next__()[0]
         except StopIteration:
-            self.data_loader_iter = self.data_loader.__iter__()
-            output = self.data_loader_iter.__next__()[0]
+            self.discriminator_data_loader_iter = self.discriminator_data_loader.__iter__()
+            output = self.discriminator_data_loader_iter.__next__()[0]
+        return output
+
+    def get_generator_next_real_image_batch(self, image_size: int, batch_size: int) -> torch.Tensor:
+        if self.generator_data_loader is None:
+            self.generator_data_loader = self.data_loader_func(image_size, batch_size, self.device)
+        if self.generator_data_loader_iter is None:
+            self.generator_data_loader_iter = self.generator_data_loader.__iter__()
+        try:
+            output = self.generator_data_loader_iter.__next__()[0]
+        except StopIteration:
+            self.generator_data_loader_iter = self.generator_data_loader.__iter__()
+            output = self.generator_data_loader_iter.__next__()[0]
         return output
 
     def sample_images_file_name(self, phase_name: str,
@@ -284,16 +296,22 @@ class PgGanTasks:
         D.load_state_dict(torch_load(previous_discriminator_file_name))
         D = D.to(self.device)
 
-        G_optim = Adam(G.parameters(), lr=self.generator_learning_rate, betas=self.generator_betas)
+        G_optim = Adam(G.parameters(),
+                       lr=self.generator_learning_rate * self.batch_size[image_size] / self.batch_size[4],
+                       betas=self.generator_betas)
         G_optim.load_state_dict(torch_load(previous_generator_optimizer_state_file_name))
         self.optimizer_to_device(G_optim)
 
-        D_optim = Adam(D.parameters(), lr=self.discriminator_learning_rate, betas=self.discriminator_betas)
+        D_optim = Adam(D.parameters(),
+                       lr=self.discriminator_learning_rate * self.batch_size[image_size] / self.batch_size[4],
+                       betas=self.discriminator_betas)
         D_optim.load_state_dict(torch_load(previous_discriminator_optimizer_state_file_name))
         self.optimizer_to_device(D_optim)
 
-        self.data_loader = None
-        self.data_loader_iter = None
+        self.discriminator_data_loader = None
+        self.discriminator_data_loader_iter = None
+        self.generator_data_loader = None
+        self.generator_data_loader_iter = None
         sample_count = 0
 
         generator_loss = []
@@ -318,10 +336,11 @@ class PgGanTasks:
                 sample_image_index += 1
 
             if True:
-                real_images = self.get_next_real_image_batch(image_size, batch_size)
+                real_images = self.get_discriminator_next_real_image_batch(image_size, batch_size)
                 latent_vectors = self.sample_latent_vectors(batch_size)
                 D.train(True)
                 D.zero_grad()
+                G.zero_grad()
                 D_loss = self.loss_spec.discriminator_loss(G, D, real_images, latent_vectors)
                 D_loss.backward()
                 D_optim.step()
@@ -330,10 +349,12 @@ class PgGanTasks:
                     discriminator_loss.append(D_loss.item())
 
             if True:
+                real_images = self.get_generator_next_real_image_batch(image_size, batch_size)
                 latent_vectors = self.sample_latent_vectors(batch_size)
                 G.train(True)
                 G.zero_grad()
-                G_loss = self.loss_spec.generator_loss(G, D, latent_vectors)
+                D.zero_grad()
+                G_loss = self.loss_spec.generator_loss(G, D, real_images, latent_vectors)
                 G_loss.backward()
                 G_optim.step()
 

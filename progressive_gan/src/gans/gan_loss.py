@@ -20,5 +20,6 @@ class GanLoss:
     def generator_loss(self,
                        G: torch.nn.Module,
                        D: torch.nn.Module,
+                       real_imge: torch.Tensor,
                        latent_vector: torch.Tensor) -> torch.Tensor:
         pass
