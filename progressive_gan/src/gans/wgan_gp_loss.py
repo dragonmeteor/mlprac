@@ -65,6 +65,7 @@ class WganGpWithDriftLoss(GanLoss):
     def generator_loss(self,
                        G: torch.nn.Module,
                        D: torch.nn.Module,
+                       real_image: torch.Tensor,
                        latent_vector: torch.Tensor) -> torch.Tensor:
         return D(G(latent_vector)).mean() * -1.0
 

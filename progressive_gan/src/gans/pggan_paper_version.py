@@ -9,6 +9,87 @@ from gans.gan import GanModule, Gan
 from gans.util import is_power2
 
 LATENT_VECTOR_SIZE = 512
+LEAKY_RELU_SLOPE = 0.2
+
+
+# Code from https://github.com/t-ae/style-gan-pytorch/blob/master/network.py
+class EqualizedConv2d(Module):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0):
+        super().__init__()
+        weight = torch.empty(out_channels, in_channels, kernel_size, kernel_size)
+        normal_(weight)
+        self.weight = Parameter(weight)
+        scale = math.sqrt(2) / math.sqrt(in_channels * kernel_size * kernel_size)
+        self.register_buffer("scale", torch.tensor(scale))
+
+        self.bias = Parameter(torch.zeros(out_channels))
+
+        self.stride = stride
+        self.padding = padding
+
+    def forward(self, input):
+        scaled_weight = self.weight * self.scale
+        return F.conv2d(input, scaled_weight, self.bias, stride=self.stride, padding=self.padding)
+
+
+class EqualizedConvTranspose2d(Module):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, output_padding=0):
+        super().__init__()
+        weight = torch.empty(in_channels, out_channels, kernel_size, kernel_size)
+        normal_(weight)
+        self.weight = Parameter(weight)
+        scale = math.sqrt(2) / math.sqrt(in_channels * kernel_size * kernel_size)
+        self.register_buffer("scale", torch.tensor(scale))
+
+        self.bias = Parameter(torch.zeros(out_channels))
+
+        self.stride = stride
+        self.padding = padding
+        self.output_padding = output_padding
+
+    def forward(self, input):
+        scaled_weight = self.weight * self.scale
+        return F.conv_transpose2d(input,
+                                  scaled_weight,
+                                  self.bias,
+                                  stride=self.stride, padding=self.padding, output_padding=self.output_padding)
+
+
+class EqualizedLinear(Module):
+    def __init__(self, in_features, out_features):
+        super().__init__()
+        weight = torch.empty(out_features, in_features)
+        normal_(weight)
+        self.weight = Parameter(weight)
+        self.bias = Parameter(torch.zeros(out_features))
+
+        scale = math.sqrt(2) / math.sqrt(in_features)
+        self.register_buffer("scale", torch.tensor(scale))
+
+    def forward(self, input: torch.Tensor):
+        scaled_weight = self.weight * self.scale
+        return F.linear(input,
+                        scaled_weight,
+                        self.bias)
+
+
+class PixelWiseNorm(Module):
+    def __init__(self, epsilon=1e-8):
+        super().__init__()
+        self.epsilon = epsilon
+
+    def forward(self, input: torch.Tensor):
+        return input / ((input ** 2).mean(dim=1, keepdim=True) + self.epsilon).sqrt()
+
+
+class MiniBatchStddev(Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, input: torch.Tensor):
+        std = input.std(dim=0, keepdim=True).mean()
+        std_feature = torch.ones(input.shape[0], 1, input.shape[2], input.shape[3], device=input.device) * std
+        return torch.cat((input, std_feature), dim=1)
 
 
 class Flatten(Module):
@@ -56,26 +137,25 @@ CHANNEL_COUNT_BY_SIZE = {
 def generator_first_block():
     return Sequential(
         Unflatten(LATENT_VECTOR_SIZE, 1, 1),
-        ConvTranspose2d(in_channels=512, out_channels=512, kernel_size=4),
-        LeakyReLU(negative_slope=0.2),
-        Conv2d(in_channels=512, out_channels=512, kernel_size=3, padding=1),
-        LeakyReLU(negative_slope=0.2))
+        EqualizedConvTranspose2d(in_channels=512, out_channels=512, kernel_size=4),
+        LeakyReLU(negative_slope=LEAKY_RELU_SLOPE),
+        PixelWiseNorm(),
+        EqualizedConv2d(in_channels=512, out_channels=512, kernel_size=3, padding=1),
+        # Conv2d(in_channels=512, out_channels=512, kernel_size=3, padding=1),
+        LeakyReLU(negative_slope=LEAKY_RELU_SLOPE),
+        PixelWiseNorm())
 
 
 def generator_block(block_size, in_channels):
     out_channels = CHANNEL_COUNT_BY_SIZE[block_size]
     return Sequential(
         DoubleSize(),
-        Conv2d(in_channels=in_channels,
-               out_channels=out_channels,
-               kernel_size=3,
-               padding=1),
-        LeakyReLU(negative_slope=0.2),
-        Conv2d(in_channels=out_channels,
-               out_channels=out_channels,
-               kernel_size=3,
-               padding=1),
-        LeakyReLU(negative_slope=0.2))
+        EqualizedConv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=3, padding=1),
+        LeakyReLU(negative_slope=LEAKY_RELU_SLOPE),
+        PixelWiseNorm(),
+        EqualizedConv2d(in_channels=out_channels, out_channels=out_channels, kernel_size=3, padding=1),
+        LeakyReLU(negative_slope=LEAKY_RELU_SLOPE),
+        PixelWiseNorm())
 
 
 def add_block(gan_module: Module, name: str, block: Module):
@@ -99,11 +179,15 @@ def create_generator_blocks(gan_module: Module, size):
 
 
 def to_rgb_layer(size: int):
-    return Conv2d(in_channels=CHANNEL_COUNT_BY_SIZE[size],
-                  out_channels=3,
-                  kernel_size=1,
-                  stride=1,
-                  padding=0)
+    return EqualizedConv2d(in_channels=CHANNEL_COUNT_BY_SIZE[size],
+                           out_channels=3,
+                           kernel_size=1,
+                           stride=1,
+                           padding=0)
+
+
+def initialize_modules(gan_module: Module):
+    pass
 
 
 class PgGanGenerator(GanModule):
@@ -122,7 +206,7 @@ class PgGanGenerator(GanModule):
         return value
 
     def initialize(self):
-        pass
+        initialize_modules(self)
 
 
 class PgGanGeneratorTransition(GanModule):
@@ -149,40 +233,44 @@ class PgGanGeneratorTransition(GanModule):
         return (1.0 - self.alpha) * before_last + self.alpha * last
 
     def initialize(self):
-        pass
+        initialize_modules(self)
 
 
 def from_rgb_block(size: int):
     return Sequential(
-        Conv2d(in_channels=3,
-               out_channels=CHANNEL_COUNT_BY_SIZE[size],
-               kernel_size=1),
-        LeakyReLU(negative_slope=0.2))
+        EqualizedConv2d(in_channels=3, out_channels=CHANNEL_COUNT_BY_SIZE[size], kernel_size=1),
+        LeakyReLU(negative_slope=0.2),
+        PixelWiseNorm())
 
 
 def discriminator_block(size: int):
     return Sequential(
-        Conv2d(in_channels=CHANNEL_COUNT_BY_SIZE[size * 2],
-               out_channels=CHANNEL_COUNT_BY_SIZE[size * 2],
-               kernel_size=3,
-               padding=1),
-        LeakyReLU(negative_slope=0.2),
-        Conv2d(in_channels=CHANNEL_COUNT_BY_SIZE[size * 2],
-               out_channels=CHANNEL_COUNT_BY_SIZE[size],
-               kernel_size=3,
-               padding=1),
-        LeakyReLU(negative_slope=0.2),
+        EqualizedConv2d(in_channels=CHANNEL_COUNT_BY_SIZE[size * 2],
+                        out_channels=CHANNEL_COUNT_BY_SIZE[size * 2],
+                        kernel_size=3,
+                        padding=1),
+        LeakyReLU(negative_slope=LEAKY_RELU_SLOPE),
+        PixelWiseNorm(),
+        EqualizedConv2d(in_channels=CHANNEL_COUNT_BY_SIZE[size * 2],
+                        out_channels=CHANNEL_COUNT_BY_SIZE[size],
+                        kernel_size=3,
+                        padding=1),
+        LeakyReLU(negative_slope=LEAKY_RELU_SLOPE),
+        PixelWiseNorm(),
         AvgPool2d(kernel_size=2, stride=2))
 
 
 def discriminator_score_block():
     return Sequential(
-        Conv2d(in_channels=512, out_channels=512, kernel_size=3, padding=1),
-        LeakyReLU(negative_slope=0.2),
-        Conv2d(in_channels=512, out_channels=512, kernel_size=4, padding=0),
-        LeakyReLU(negative_slope=0.2),
+        MiniBatchStddev(),
+        EqualizedConv2d(in_channels=513, out_channels=512, kernel_size=3, padding=1),
+        LeakyReLU(negative_slope=LEAKY_RELU_SLOPE),
+        PixelWiseNorm(),
+        EqualizedConv2d(in_channels=512, out_channels=512, kernel_size=4, padding=0),
+        LeakyReLU(negative_slope=LEAKY_RELU_SLOPE),
+        PixelWiseNorm(),
         Flatten(512),
-        Linear(in_features=512, out_features=1))
+        EqualizedLinear(in_features=512, out_features=1))
 
 
 def create_discriminator_blocks(gan_module: Module, size: int):
@@ -210,7 +298,7 @@ class PgGanDiscriminator(GanModule):
         return value
 
     def initialize(self):
-        pass
+        initialize_modules(self)
 
 
 class PgGanDiscriminatorTransition(GanModule):
@@ -241,7 +329,7 @@ class PgGanDiscriminatorTransition(GanModule):
         return value
 
     def initialize(self):
-        pass
+        initialize_modules(self)
 
 
 class PgGan(Gan):

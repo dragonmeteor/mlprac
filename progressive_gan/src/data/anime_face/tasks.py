@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from gans.util import torch_save, torch_load, srgb_to_linear, save_sample_images
 from pytasuku import Workspace
 
-IMAGE_COUNT = 21551
+IMAGE_COUNT = 20722
 
 DIR = "data/anime_face"
 

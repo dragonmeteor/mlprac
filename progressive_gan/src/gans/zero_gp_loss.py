@@ -65,6 +65,7 @@ class ZeroGpLoss(GanLoss):
     def generator_loss(self,
                        G: torch.nn.Module,
                        D: torch.nn.Module,
+                       real_image: torch.Tensor,
                        latent_vector: torch.Tensor) -> torch.Tensor:
         fake_logit = D(G(latent_vector))
         ones = torch.ones(latent_vector.shape[0], 1, device=self.device, requires_grad=False)
