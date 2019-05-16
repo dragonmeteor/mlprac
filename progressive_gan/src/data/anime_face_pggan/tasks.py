@@ -4,7 +4,6 @@ from data.anime_face.data_loader import anime_face_data_loader
 from data.anime_face_pggan.interpolation_video_tasks import InterpolationVideoTasks
 from data.anime_face_pggan.training_video_tasks import TrainingVideoTasks
 from gans.pggan_tasks import PgGanTasks
-from gans.ra_sgan_loss import RaSGanLoss
 from gans.zero_gp_loss import ZeroGpLoss
 from pytasuku import Workspace
 

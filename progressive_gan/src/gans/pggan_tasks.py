@@ -10,7 +10,8 @@ from torch.optim import Adam
 from torch.utils.data import DataLoader
 
 from gans.gan_loss import GanLoss
-from gans.pggan import LATENT_VECTOR_SIZE, PgGan, PgGanGenerator, PgGanDiscriminator, PgGanGeneratorTransition, \
+from gans.pggan_spec import PgGan
+from gans.simplified_pggan import LATENT_VECTOR_SIZE, PgGan, PgGanGenerator, PgGanDiscriminator, PgGanGeneratorTransition, \
     PgGanDiscriminatorTransition
 from gans.util import is_power2, torch_save, torch_load, save_sample_images
 from pytasuku import Workspace
@@ -47,11 +48,12 @@ class PgGanTasks:
                  workspace: Workspace,
                  dir: str,
                  output_image_size: int,
+                 pggan_spec: PgGan,
                  loss_spec: GanLoss,
                  data_loader_func: Callable[[int, int, torch.device], DataLoader],
                  latent_vector_seed=293404984,
                  training_seed=60586483,
-                 batch_size: Dict[int, int] = DEFAULT_BATCH_SIZE,
+                 batch_size: Dict[int, int] = None,
                  sample_image_count=64,
                  sample_image_per_row=8,
                  sample_per_sample_image=10000,
@@ -63,6 +65,9 @@ class PgGanTasks:
                  generator_betas=(0, 0.999),
                  discriminator_betas=(0, 0.999),
                  device=torch.device('cpu')):
+        if batch_size is None:
+            batch_size = DEFAULT_BATCH_SIZE
+
         self.workspace = workspace
         self.dir = dir
         self.device = device
@@ -71,6 +76,7 @@ class PgGanTasks:
         assert is_power2(output_image_size)
         self.output_image_size = output_image_size
 
+        self.pggan_spec = pggan_spec
         self.loss_spec = loss_spec
 
         self.sizes = []
@@ -165,12 +171,11 @@ class PgGanTasks:
     def save_initial_model(self):
         torch.manual_seed(self.training_seed)
 
-        gan_spec = PgGan(4, self.device)
-        G = gan_spec.generator()
+        G = self.pggan_spec.generator_stabilize(4).to(self.device)
         G.initialize()
         torch_save(G.state_dict(), self.initial_generator_file_name)
 
-        D = gan_spec.discriminator()
+        D = self.pggan_spec.discriminator_stabilize(4).to(self.device)
         D.initialize()
         torch_save(D.state_dict(), self.initial_discriminator_file_name)
 
@@ -185,18 +190,18 @@ class PgGanTasks:
         self.load_rng_state(previous_rng_state_file_name)
 
         if phase_name == STABILIZE_PHASE_NAME:
-            G = PgGanGenerator(image_size).to(self.device)
+            G = self.pggan_spec.generator_stabilize(image_size).to(self.device)
         else:
-            G = PgGanGeneratorTransition(image_size).to(self.device)
+            G = self.pggan_spec.generator_transition(image_size).to(self.device)
         G.initialize()
         G.load_state_dict(torch_load(previous_generator_file_name), strict=False)
         G = G.to(self.device)
         torch_save(G.state_dict(), self.generator_file_name(phase_name, image_size, 0))
 
         if phase_name == STABILIZE_PHASE_NAME:
-            D = PgGanDiscriminator(image_size).to(self.device)
+            D = self.pggan_spec.discriminator_stabilize(image_size).to(self.device)
         else:
-            D = PgGanDiscriminatorTransition(image_size).to(self.device)
+            D = self.pggan_spec.discriminator_transition(image_size).to(self.device)
         D.initialize()
         D.load_state_dict(torch_load(previous_discriminator_file_name), strict=False)
         D = D.to(self.device)
@@ -283,16 +288,16 @@ class PgGanTasks:
         self.load_rng_state(previous_rng_state_file_name)
 
         if phase_name == STABILIZE_PHASE_NAME:
-            G = PgGanGenerator(image_size).to(self.device)
+            G = self.pggan_spec.generator_stabilize(image_size).to(self.device)
         else:
-            G = PgGanGeneratorTransition(image_size).to(self.device)
+            G = self.pggan_spec.generator_transition(image_size).to(self.device)
         G.load_state_dict(torch_load(previous_generator_file_name))
         G = G.to(self.device)
 
         if phase_name == STABILIZE_PHASE_NAME:
-            D = PgGanDiscriminator(image_size).to(self.device)
+            D = self.pggan_spec.discriminator_stabilize(image_size).to(self.device)
         else:
-            D = PgGanDiscriminatorTransition(image_size).to(self.device)
+            D = self.pggan_spec.discriminator_transition(image_size).to(self.device)
         D.load_state_dict(torch_load(previous_discriminator_file_name))
         D = D.to(self.device)
 

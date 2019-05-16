@@ -5,7 +5,7 @@ from torch.nn.init import calculate_gain, _calculate_correct_fan, normal_, kaimi
 import torch.nn.functional as F
 import math
 
-from gans.gan import GanModule, Gan
+from gans.gan_module import GanModule, Gan
 from gans.util import is_power2
 
 LATENT_VECTOR_SIZE = 512
