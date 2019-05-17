@@ -1,7 +1,7 @@
 import os
 
 from data.anime_face_pggan.video_util import convert_avs_to_avi
-from gans.pggan_paper_version import PgGanGenerator
+from gans.karras_2017_pggan import PgGanGenerator
 from gans.pggan_tasks import PgGanTasks
 from gans.util import torch_save, torch_load
 from pytasuku import Workspace

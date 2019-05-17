@@ -2,12 +2,9 @@ import torch
 import torch.nn.functional as F
 from torch.nn import Conv2d, ConvTranspose2d, Linear, Module, Sequential, LeakyReLU, AvgPool2d
 
-from gans.gan_module import GanModule, Gan
+from gans.gan_module import GanModule
 from gans.pggan_spec import PgGan
 from gans.util import is_power2
-
-LATENT_VECTOR_SIZE = 512
-
 
 class Flatten(Module):
     def __init__(self, size):

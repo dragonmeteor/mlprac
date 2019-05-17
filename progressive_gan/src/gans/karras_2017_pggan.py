@@ -6,6 +6,7 @@ import torch.nn.functional as F
 import math
 
 from gans.gan_module import GanModule, Gan
+from gans.pggan_spec import PgGan
 from gans.util import is_power2
 
 LATENT_VECTOR_SIZE = 512
@@ -332,89 +333,22 @@ class PgGanDiscriminatorTransition(GanModule):
         initialize_modules(self)
 
 
-class PgGan(Gan):
-    def __init__(self, size: int, device=torch.device('cpu')):
-        super().__init__(device)
-        assert size >= 4
-        assert is_power2(size)
-        self.size = size
-
-    @property
-    def sample_size(self) -> int:
-        return self.size * self.size
+class Karras2017PgGan(PgGan):
+    def __init__(self):
+        super().__init__(self)
 
     @property
     def latent_vector_size(self) -> int:
-        return LATENT_VECTOR_SIZE
+        return 512
 
-    @property
-    def image_size(self) -> int:
-        return self.size
+    def generator_stabilize(self, image_size: int) -> GanModule:
+        return PgGanGenerator(image_size)
 
-    def discriminator(self) -> GanModule:
-        return PgGanDiscriminator(self.size).to(self.device)
+    def generator_transition(self, image_size: int) -> GanModule:
+        return PgGanGeneratorTransition(image_size)
 
-    def generator(self) -> GanModule:
-        return PgGanGenerator(self.size).to(self.device)
+    def discriminator_stabilize(self, image_size: int) -> GanModule:
+        return PgGanDiscriminator(image_size)
 
-
-class PgGanTransition(Gan):
-    def __init__(self, size: int, device=torch.device('cpu')):
-        super().__init__(device)
-        assert size >= 4
-        assert is_power2(size)
-        self.size = size
-
-    @property
-    def sample_size(self) -> int:
-        return self.size * self.size
-
-    @property
-    def latent_vector_size(self) -> int:
-        return LATENT_VECTOR_SIZE
-
-    @property
-    def image_size(self) -> int:
-        return self.size
-
-    def discriminator(self) -> GanModule:
-        return PgGanDiscriminatorTransition(self.size).to(self.device)
-
-    def generator(self) -> GanModule:
-        return PgGanGeneratorTransition(self.size).to(self.device)
-
-
-if __name__ == "__main__":
-    size = 4
-    while size <= 64:
-        if size > 4:
-            D = PgGanDiscriminatorTransition(size)
-            print("DiscriminatorTransition(%d)" % size)
-            for name in D.state_dict().keys():
-                print(name)
-            print()
-
-        D = PgGanDiscriminator(size)
-        print("Discriminator(%d)" % size)
-        for name in D.state_dict().keys():
-            print(name)
-        print()
-
-        size *= 2
-
-    size = 4
-    while size <= 64:
-        if size > 4:
-            G = PgGanGeneratorTransition(size)
-            print("GeneratorTransition(%d)" % size)
-            for name in G.state_dict().keys():
-                print(name)
-            print()
-
-        G = PgGanGenerator(size)
-        print("Generator(%d)" % size)
-        for name in G.state_dict().keys():
-            print(name)
-        print()
-
-        size *= 2
+    def discriminator_transition(self, image_size: int) -> GanModule:
+        return PgGanDiscriminatorTransition(image_size)

@@ -11,22 +11,9 @@ from torch.utils.data import DataLoader
 
 from gans.gan_loss import GanLoss
 from gans.pggan_spec import PgGan
-from gans.simplified_pggan import LATENT_VECTOR_SIZE, PgGan, PgGanGenerator, PgGanDiscriminator, PgGanGeneratorTransition, \
-    PgGanDiscriminatorTransition
 from gans.util import is_power2, torch_save, torch_load, save_sample_images
 from pytasuku import Workspace
 
-# DEFAULT_BATCH_SIZE = {
-#    4: 32,
-#    8: 16,
-#    16: 16,
-#    32: 16,
-#    64: 16,
-#    128: 16,
-#    256: 8,
-#    512: 4,
-#    1024: 4
-# }
 DEFAULT_BATCH_SIZE = {
     4: 32,
     8: 32,
@@ -152,7 +139,7 @@ class PgGanTasks:
 
     def sample_latent_vectors(self, count):
         return torch.randn(count,
-                           LATENT_VECTOR_SIZE,
+                           self.pggan_spec.latent_vector_size,
                            device=self.device)
 
     def save_latent_vectors(self):
