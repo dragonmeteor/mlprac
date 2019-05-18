@@ -33,7 +33,7 @@ TRANSITION_PHASE_NAME = "transition"
 class PgGanTasks:
     def __init__(self,
                  workspace: Workspace,
-                 dir: str,
+                 directory: str,
                  output_image_size: int,
                  pggan_spec: PgGan,
                  loss_spec: GanLoss,
@@ -56,7 +56,7 @@ class PgGanTasks:
             batch_size = DEFAULT_BATCH_SIZE
 
         self.workspace = workspace
-        self.dir = dir
+        self.directory = directory
         self.device = device
 
         assert output_image_size > 4
@@ -92,13 +92,13 @@ class PgGanTasks:
         self.generator_betas = generator_betas
         self.discriminator_betas = discriminator_betas
 
-        self.latent_vector_file_name = self.dir + "/latent_vectors.pt"
-        self.initial_rng_state_file_name = self.dir + "/initial_rng_state.pt"
-        self.initial_generator_file_name = self.dir + "/initial_generator.pt"
-        self.initial_discriminator_file_name = self.dir + "/initial_discriminator.pt"
+        self.latent_vector_file_name = self.directory + "/latent_vectors.pt"
+        self.initial_rng_state_file_name = self.directory + "/initial_rng_state.pt"
+        self.initial_generator_file_name = self.directory + "/initial_generator.pt"
+        self.initial_discriminator_file_name = self.directory + "/initial_discriminator.pt"
 
-        self.final_generator_file_name = self.dir + "/final_generator.pt"
-        self.final_discriminator_file_name = self.dir + "/final_discriminator.pt"
+        self.final_generator_file_name = self.directory + "/final_generator.pt"
+        self.final_discriminator_file_name = self.directory + "/final_discriminator.pt"
 
     def iter_per_save_point(self, image_size: int):
         batch_size = self.batch_size[image_size]
@@ -108,7 +108,7 @@ class PgGanTasks:
         return result
 
     def phase_dir(self, phase_name: str, image_size: int) -> str:
-        return self.dir + ("/%s_%05d" % (phase_name, image_size))
+        return self.directory + ("/%s_%05d" % (phase_name, image_size))
 
     def rng_state_file_name(self, phase_name: str, image_size: int, save_point: int):
         return self.phase_dir(phase_name, image_size) + ("/rng_state_%03d.pt" % save_point)
@@ -583,7 +583,7 @@ class PgGanTasks:
             lambda: shutil.copyfile(finished_discriminator_file_name, self.final_discriminator_file_name))
 
         self.workspace.create_command_task(
-            self.dir + "/train",
+            self.directory + "/train",
             [
                 self.final_generator_file_name,
                 self.final_discriminator_file_name
@@ -602,6 +602,6 @@ class PgGanTasks:
             size *= 2
 
         self.workspace.create_command_task(
-            self.dir + "/loss_plots",
+            self.directory + "/loss_plots",
             loss_plot_files
         )
