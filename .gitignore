@@ -5,4 +5,4 @@
 */data/*
 *.iml
 *.pyc
-*/.cache/*
+**/.cache/*
