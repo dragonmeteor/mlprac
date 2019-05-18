@@ -7,7 +7,6 @@ from torch.nn import functional as F
 from torch.nn.init import ones_, zeros_
 
 from gans.gan_module import GanModule
-from gans.simplified_pggan import to_rgb_layer
 
 LATENT_VECTOR_SIZE = 512
 LEAKY_RELU_NEGATIVE_SLOPE = 0.2
@@ -205,45 +204,110 @@ class GeneratorFirstBlock(GanModule):
         pass
 
 
-class GeneratorNetwork(Module):
+def set_generator_properites(network,
+                             image_size: int,
+                             latent_vector_size: int = LATENT_VECTOR_SIZE,
+                             leaky_relu_negative_slope: float = LEAKY_RELU_NEGATIVE_SLOPE,
+                             num_channels_by_image_size: Dict[int, int] = None):
+    network.image_size = image_size
+    network.latent_vector_size = latent_vector_size
+    network.leaky_relu_negative_slope = leaky_relu_negative_slope
+    if num_channels_by_image_size is None:
+        num_channels_by_image_size = NUM_CHANNELS_BY_IMAGE_SIZE
+    network.num_channels_by_image_size = num_channels_by_image_size
+
+def add_first_generator_block(network: Module):
+    first_block = GeneratorFirstBlock(image_size=4,
+                                      out_channels=network.num_channels_by_image_size[4],
+                                      latent_vector_size=network.latent_vector_size,
+                                      leaky_relu_negative_slope=network.leaky_relu_negative_slope)
+    network.add_module("block_%05d" % 4, first_block)
+
+def add_generator_blocks(network: Module):
+    network.blocks = []
+    size = 8
+    while size <= network.image_size:
+        block = GeneratorBlock(in_channels=network.num_channels_by_image_size[size // 2],
+                               out_channels=network.num_channels_by_image_size[size],
+                               latent_vector_size=network.latent_vector_size,
+                               leaky_relu_negative_slope=network.leaky_relu_negative_slope)
+        network.add_module("block_%05d" % size, block)
+        network.blocks.append(block)
+        size *= 2
+
+def to_rgb_layer(size: int, num_channels_by_image_size: Dict[int, int] = None):
+    if num_channels_by_image_size is None:
+        num_channels_by_image_size = NUM_CHANNELS_BY_IMAGE_SIZE
+    return Conv2d(in_channels=num_channels_by_image_size[size],
+                  out_channels=3,
+                  kernel_size=1,
+                  stride=1,
+                  padding=0)
+
+class GeneratorNetwork(GanModule):
     def __init__(self,
                  image_size: int,
                  latent_vector_size: int = LATENT_VECTOR_SIZE,
                  leaky_relu_negative_slope: float = LEAKY_RELU_NEGATIVE_SLOPE,
                  num_channels_by_image_size: Dict[int, int] = None):
         super().__init__()
+        set_generator_properites(self,
+                                 image_size,
+                                 latent_vector_size,
+                                 leaky_relu_negative_slope,
+                                 num_channels_by_image_size)
+        add_first_generator_block(self)
+        add_generator_blocks(self)
 
-        self.image_size = image_size
-        self.latent_vector_size = latent_vector_size
-        self.leaky_relu_negative_slope = leaky_relu_negative_slope
-
-        if num_channels_by_image_size is None:
-            num_channels_by_image_size = NUM_CHANNELS_BY_IMAGE_SIZE
-        self.num_channels_by_image_size = num_channels_by_image_size
-
-        first_block = GeneratorFirstBlock(image_size=4,
-                                          out_channels=num_channels_by_image_size[4],
-                                          latent_vector_size=latent_vector_size,
-                                          leaky_relu_negative_slope=leaky_relu_negative_slope)
-        self.add_module("block_%05d" % 4, first_block)
-
-        self.blocks = []
-        size = 8
-        while size <= self.image_size:
-            block = GeneratorBlock(in_channels=num_channels_by_image_size[size // 2],
-                                   out_channels=num_channels_by_image_size[size],
-                                   latent_vector_size=latent_vector_size,
-                                   leaky_relu_negative_slope=leaky_relu_negative_slope)
-            self.add_module("block_%05d" % size, block)
-            self.blocks.append(block)
-            size *= 2
-
-        last_layer = to_rgb_layer(size=self.image_size)
-        self.add_module("to_rgb_%05d" % self.image_size, last_layer)
-        self.to_rgb_layers = [last_layer]
+        rgb_layer = to_rgb_layer(size=self.image_size, num_channels_by_image_size=self.num_channels_by_image_size)
+        self.add_module("to_rgb_%05d" % self.image_size, rgb_layer)
+        self.to_rgb_layers = [rgb_layer]
 
     def forward(self, latent_vector):
         value = self.block_00004(latent_vector)
         for block in self.blocks:
             value = block(input_image=value, latent_vector=latent_vector)
         return self.to_rgb_layers[0](value)
+
+    def initialize(self):
+        pass
+
+
+class GeneratorTransitionNetwork(GanModule):
+    def __init__(self,
+                 image_size: int,
+                 latent_vector_size: int = LATENT_VECTOR_SIZE,
+                 leaky_relu_negative_slope: float = LEAKY_RELU_NEGATIVE_SLOPE,
+                 num_channels_by_image_size: Dict[int, int] = None):
+        super().__init__()
+        set_generator_properites(self,
+                                 image_size,
+                                 latent_vector_size,
+                                 leaky_relu_negative_slope,
+                                 num_channels_by_image_size)
+        add_first_generator_block(self)
+        add_generator_blocks(self)
+
+        self.to_rgb_layers = [
+            to_rgb_layer(self.image_size // 2, self.num_channels_by_image_size),
+            to_rgb_layer(self.image_size, self.num_channels_by_image_size)
+        ]
+        self.add_module("to_rgb_%05d" % (self.image_size // 2), self.to_rgb_layers[0])
+        self.add_module("to_rgb_%05d" % self.image_size, self.to_rgb_layers[1])
+
+        self.alpha = 0.0
+
+    def forward(self, latent_vector):
+        value = self.block_00004(latent_vector)
+        for block in self.blocks[:-1]:
+            value = block(input_image=value, latent_vector=latent_vector)
+
+        lowres_image = self.to_rgb_layers[0](value)
+        lowres_image = F.interpolate(lowres_image, scale_factor=2, mode='nearest')
+
+        highres_image = self.to_rgb_layers[1](self.blocks[-1](value, latent_vector))
+
+        return lowres_image * (1.0 - self.alpha) + highres_image * self.alpha
+
+    def initialize(self):
+        pass

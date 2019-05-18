@@ -1,7 +1,8 @@
 import torch
 import unittest
 
-from gans.simplified_style_gan import AdaIN, GeneratorBlock, create_noise, GeneratorFirstBlock, GeneratorNetwork
+from gans.simplified_style_gan import AdaIN, GeneratorBlock, create_noise, GeneratorFirstBlock, GeneratorNetwork, \
+    GeneratorTransitionNetwork
 from test.gans.test_util import tensor_equals
 
 
@@ -149,6 +150,17 @@ class GeneratorNetworkTests(unittest.TestCase):
     def test_forward(self):
         cuda = torch.device('cuda')
         network = GeneratorNetwork(64).to(cuda)
+        latent_vector = torch.zeros(3, 512, device=cuda)
+
+        output = network(latent_vector)
+
+        self.assertEqual(output.shape, torch.Size((3, 3, 64, 64)))
+
+
+class GeneratorTransitionNetworkTests(unittest.TestCase):
+    def test_forward(self):
+        cuda = torch.device('cuda')
+        network = GeneratorTransitionNetwork(64).to(cuda)
         latent_vector = torch.zeros(3, 512, device=cuda)
 
         output = network(latent_vector)
