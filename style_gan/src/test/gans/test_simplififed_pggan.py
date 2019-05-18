@@ -1,7 +1,7 @@
 import torch
 import unittest
 
-from gans.simplified_style_gan import AdaIN, GeneratorBlock
+from gans.simplified_style_gan import AdaIN, GeneratorBlock, create_noise, GeneratorFirstBlock, GeneratorNetwork
 from test.gans.test_util import tensor_equals
 
 
@@ -36,24 +36,7 @@ class AdaINTest(unittest.TestCase):
         self.assertTrue(tensor_equals(y_std, torch.Tensor([10, 100, 100])))
 
 
-class GeneratorBlockTests(unittest.TestCase):
-    def test_upsample(self):
-        block = GeneratorBlock(in_channels=16, out_channels=16)
-        input_image = torch.ones(3, 16, 4, 4)
-
-        upsampled_image = block.upsample(input_image)
-
-        self.assertEquals(upsampled_image.shape, torch.Size((3, 16, 8, 8)))
-        self.assertEquals((upsampled_image - 1).abs().max(), 0.0)
-
-    def test_convolve_1(self):
-        block = GeneratorBlock(in_channels=16, out_channels=32)
-        input_image = torch.ones(3, 16, 8, 8)
-
-        conv_1_image = block.convolve_1(input_image)
-
-        self.assertEquals(conv_1_image.shape, torch.Size((3, 32, 8, 8)))
-
+class CreateNoiseTests(unittest.TestCase):
     def test_create_noise__noise_input_is_none(self):
         h = 256
         w = 256
@@ -61,7 +44,7 @@ class GeneratorBlockTests(unittest.TestCase):
         block = GeneratorBlock(in_channels=4, out_channels=4)
         input_image = torch.ones(3, 4, h, w)
 
-        noise = block.create_noise(input_image, torch.Tensor([1, 2, 3, 4]).view(1, 4, 1, 1), None)
+        noise = create_noise(input_image, torch.Tensor([1, 2, 3, 4]).view(1, 4, 1, 1), None)
 
         self.assertEquals(block.noise_1_factor.shape, torch.Size((1, 4, 1, 1)))
         self.assertEquals(block.noise_2_factor.shape, torch.Size((1, 4, 1, 1)))
@@ -79,7 +62,7 @@ class GeneratorBlockTests(unittest.TestCase):
         block = GeneratorBlock(in_channels=4, out_channels=4)
         input_image = torch.ones(3, 4, h, w)
 
-        noise = block.create_noise(
+        noise = create_noise(
             input_image,
             noise_factor=torch.Tensor([1, 2, 3, 4]).view(1, 4, 1, 1),
             input_noise=torch.Tensor([
@@ -120,6 +103,25 @@ class GeneratorBlockTests(unittest.TestCase):
         self.assertTrue(tensor_equals(noise[0], noise[1]))
         self.assertTrue(tensor_equals(noise[0], noise[2]))
 
+
+class GeneratorBlockTests(unittest.TestCase):
+    def test_upsample(self):
+        block = GeneratorBlock(in_channels=16, out_channels=16)
+        input_image = torch.ones(3, 16, 4, 4)
+
+        upsampled_image = block.upsample(input_image)
+
+        self.assertEquals(upsampled_image.shape, torch.Size((3, 16, 8, 8)))
+        self.assertEquals((upsampled_image - 1).abs().max(), 0.0)
+
+    def test_convolve_1(self):
+        block = GeneratorBlock(in_channels=16, out_channels=32)
+        input_image = torch.ones(3, 16, 8, 8)
+
+        conv_1_image = block.convolve_1(input_image)
+
+        self.assertEquals(conv_1_image.shape, torch.Size((3, 32, 8, 8)))
+
     def test_forward(self):
         h = 16
         w = 16
@@ -131,6 +133,27 @@ class GeneratorBlockTests(unittest.TestCase):
         output_image = block.forward(input_image, weight)
 
         self.assertEqual(output_image.shape, torch.Size((3, 64, 32, 32)))
+
+
+class GeneratorFirstBlockTests(unittest.TestCase):
+    def test_forward(self):
+        block = GeneratorFirstBlock(image_size=4, out_channels=64)
+        weight = torch.ones(3, 512)
+
+        output_image = block.forward(weight)
+
+        self.assertEqual(output_image.shape, torch.Size((3, 64, 4, 4)))
+
+
+class GeneratorNetworkTests(unittest.TestCase):
+    def test_forward(self):
+        cuda = torch.device('cuda')
+        network = GeneratorNetwork(64).to(cuda)
+        latent_vector = torch.zeros(3, 512, device=cuda)
+
+        output = network(latent_vector)
+
+        self.assertEqual(output.shape, torch.Size((3, 3, 64, 64)))
 
 
 if __name__ == "__main__":

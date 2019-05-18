@@ -6,6 +6,7 @@ from gans.gan_module import GanModule
 from gans.pggan_spec import PgGan
 from gans.util import is_power2
 
+
 class Flatten(Module):
     def __init__(self, size):
         super().__init__()
@@ -46,6 +47,8 @@ CHANNEL_COUNT_BY_SIZE = {
     512: 32,
     1024: 16
 }
+
+LATENT_VECTOR_SIZE = 512
 
 
 def generator_first_block():
