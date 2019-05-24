@@ -1,8 +1,8 @@
 import torch
 import unittest
 
-from gans.simplified_style_gan import AdaIN, GeneratorBlock, create_noise, GeneratorFirstBlock, GeneratorNetwork, \
-    GeneratorTransitionNetwork
+from gans.simplified_style_gan import AdaIN, GeneratorBlock, create_noise, GeneratorFirstBlock, GeneratorModule, \
+    GeneratorTransitionModule
 from test.gans.test_util import tensor_equals
 
 
@@ -149,7 +149,7 @@ class GeneratorFirstBlockTests(unittest.TestCase):
 class GeneratorNetworkTests(unittest.TestCase):
     def test_forward(self):
         cuda = torch.device('cuda')
-        network = GeneratorNetwork(64).to(cuda)
+        network = GeneratorModule(64).to(cuda)
         latent_vector = torch.zeros(3, 512, device=cuda)
 
         output = network(latent_vector)
@@ -160,7 +160,7 @@ class GeneratorNetworkTests(unittest.TestCase):
 class GeneratorTransitionNetworkTests(unittest.TestCase):
     def test_forward(self):
         cuda = torch.device('cuda')
-        network = GeneratorTransitionNetwork(64).to(cuda)
+        network = GeneratorTransitionModule(64).to(cuda)
         latent_vector = torch.zeros(3, 512, device=cuda)
 
         output = network(latent_vector)

@@ -7,6 +7,8 @@ from torch.nn import functional as F
 from torch.nn.init import ones_, zeros_
 
 from gans.gan_module import GanModule
+from gans.simplified_pggan import PgGanDiscriminator, PgGanDiscriminatorTransition
+from gans.style_gan_spec import StyleGan
 
 LATENT_VECTOR_SIZE = 512
 LEAKY_RELU_NEGATIVE_SLOPE = 0.2
@@ -24,7 +26,7 @@ NUM_CHANNELS_BY_IMAGE_SIZE = {
 }
 
 
-class MappingNetwork(GanModule):
+class MappingModule(GanModule):
     def __init__(self,
                  latent_vector_size: int = LATENT_VECTOR_SIZE,
                  leaky_lu_negative_slope: float = LEAKY_RELU_NEGATIVE_SLOPE):
@@ -132,10 +134,12 @@ class GeneratorBlock(GanModule):
         upsampled_image = self.upsample(input_image)
         conv_1_image = self.convolve_1(upsampled_image)
         noise_1_image = conv_1_image + create_noise(conv_1_image, self.noise_1_factor, noise_1)
-        adain_1_image = AdaIN(noise_1_image, self.weight_to_new_mean_1(latent_vector), self.weight_to_new_std_1(latent_vector))
+        adain_1_image = AdaIN(noise_1_image, self.weight_to_new_mean_1(latent_vector),
+                              self.weight_to_new_std_1(latent_vector))
         conv_2_image = self.convolve_2(adain_1_image)
         noise_2_image = conv_2_image + create_noise(conv_2_image, self.noise_2_factor, noise_2)
-        adain_2_image = AdaIN(noise_2_image, self.weight_to_new_mean_2(latent_vector), self.weight_to_new_std_2(latent_vector))
+        adain_2_image = AdaIN(noise_2_image, self.weight_to_new_mean_2(latent_vector),
+                              self.weight_to_new_std_2(latent_vector))
         return adain_2_image
 
     def convolve_1(self, input_image: torch.Tensor):
@@ -216,12 +220,14 @@ def set_generator_properites(network,
         num_channels_by_image_size = NUM_CHANNELS_BY_IMAGE_SIZE
     network.num_channels_by_image_size = num_channels_by_image_size
 
+
 def add_first_generator_block(network: Module):
     first_block = GeneratorFirstBlock(image_size=4,
                                       out_channels=network.num_channels_by_image_size[4],
                                       latent_vector_size=network.latent_vector_size,
                                       leaky_relu_negative_slope=network.leaky_relu_negative_slope)
     network.add_module("block_%05d" % 4, first_block)
+
 
 def add_generator_blocks(network: Module):
     network.blocks = []
@@ -235,6 +241,7 @@ def add_generator_blocks(network: Module):
         network.blocks.append(block)
         size *= 2
 
+
 def to_rgb_layer(size: int, num_channels_by_image_size: Dict[int, int] = None):
     if num_channels_by_image_size is None:
         num_channels_by_image_size = NUM_CHANNELS_BY_IMAGE_SIZE
@@ -244,7 +251,8 @@ def to_rgb_layer(size: int, num_channels_by_image_size: Dict[int, int] = None):
                   stride=1,
                   padding=0)
 
-class GeneratorNetwork(GanModule):
+
+class GeneratorModule(GanModule):
     def __init__(self,
                  image_size: int,
                  latent_vector_size: int = LATENT_VECTOR_SIZE,
@@ -273,7 +281,7 @@ class GeneratorNetwork(GanModule):
         pass
 
 
-class GeneratorTransitionNetwork(GanModule):
+class GeneratorTransitionModule(GanModule):
     def __init__(self,
                  image_size: int,
                  latent_vector_size: int = LATENT_VECTOR_SIZE,
@@ -311,3 +319,39 @@ class GeneratorTransitionNetwork(GanModule):
 
     def initialize(self):
         pass
+
+
+class SimplifiedStyleGan(StyleGan):
+    def __init__(self,
+                 leaky_relu_negative_slope=LEAKY_RELU_NEGATIVE_SLOPE,
+                 num_channels_by_image_size: Dict[int, int] = None):
+        super().__init__()
+        self.leaky_relu_negative_slope = leaky_relu_negative_slope
+        if num_channels_by_image_size is None:
+            num_channels_by_image_size = NUM_CHANNELS_BY_IMAGE_SIZE
+        self.num_channels_by_image_size = num_channels_by_image_size
+
+    @property
+    def latent_vector_size(self) -> int:
+        return LATENT_VECTOR_SIZE
+
+    def mapping_module(self) -> GanModule:
+        return MappingModule(self.latent_vector_size, self.leaky_relu_negative_slope)
+
+    def generator_module_stabilize(self, image_size) -> GanModule:
+        return GeneratorModule(image_size,
+                               self.latent_vector_size,
+                               self.leaky_relu_negative_slope,
+                               self.num_channels_by_image_size)
+
+    def discriminator_stabilize(self, image_size) -> GanModule:
+        return PgGanDiscriminator(image_size)
+
+    def generator_module_transition(self, image_size) -> GanModule:
+        return GeneratorTransitionModule(image_size,
+                                         self.latent_vector_size,
+                                         self.leaky_relu_negative_slope,
+                                         self.num_channels_by_image_size)
+
+    def discriminator_transition(self, image_size) -> GanModule:
+        return PgGanDiscriminatorTransition(image_size)
