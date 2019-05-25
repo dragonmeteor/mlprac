@@ -125,7 +125,17 @@ class StyleGanTasks:
                     self.transition_phases[-1].rng_state_tasks.file_name(self.save_point_per_phase)))
             size *= 2
 
-        
+        # The finished model
+        self.finished_mapping_module_tasks = FinishedMappingModuleTasks(self)
+        self.finished_generator_module_tasks = FinishedGeneratorModuleTasks(self)
+        self.finished_discriminator_tasks = FinishedDiscriminatorTasks(self)
+        self.workspace.create_command_task(
+            self.prefix + "/finished_model",
+            [
+                self.finished_mapping_module_tasks.file_name,
+                self.finished_generator_module_tasks.file_name,
+                self.finished_discriminator_tasks.file_name
+            ])
 
     def sample_latent_vectors(self, count):
         return torch.randn(count,
@@ -850,3 +860,77 @@ class PhaseDiscriminatorLossPlotTasks(OneIndexFileTasks):
         self.workspace.create_file_task(self.file_name(index),
                                         [self.phase_tasks.discriminator_loss_tasks.file_name(index)],
                                         lambda: self.plot_loss(index))
+
+class FinishedMappingModuleTasks(NoIndexFileTasks):
+    def __init__(self, style_gan_tasks: StyleGanTasks):
+        super().__init__(style_gan_tasks.workspace,
+                         style_gan_tasks.prefix,
+                         "finished_mapping_module",
+                         False)
+        self.style_gan_tasks = style_gan_tasks
+        self.source_file = self.style_gan_tasks.stabilize_phases[-1]\
+            .mapping_module_tasks.file_name(self.style_gan_tasks.save_point_per_phase)
+        self.define_tasks()
+
+    @property
+    def file_name(self):
+        return self.prefix + "/finished_mapping_module.pt"
+
+    def copy_file(self):
+        shutil.copy(self.source_file, self.file_name)
+
+    def create_file_task(self):
+        self.workspace.create_file_task(
+            self.file_name,
+            [self.source_file],
+            lambda: self.copy_file())
+
+
+class FinishedGeneratorModuleTasks(NoIndexFileTasks):
+    def __init__(self, style_gan_tasks: StyleGanTasks):
+        super().__init__(style_gan_tasks.workspace,
+                         style_gan_tasks.prefix,
+                         "finished_generator_module",
+                         False)
+        self.style_gan_tasks = style_gan_tasks
+        self.source_file = self.style_gan_tasks.stabilize_phases[-1]\
+            .generator_module_tasks.file_name(self.style_gan_tasks.save_point_per_phase)
+        self.define_tasks()
+
+    @property
+    def file_name(self):
+        return self.prefix + "/finished_generator_module.pt"
+
+    def copy_file(self):
+        shutil.copy(self.source_file, self.file_name)
+
+    def create_file_task(self):
+        self.workspace.create_file_task(
+            self.file_name,
+            [self.source_file],
+            lambda: self.copy_file())
+
+
+class FinishedDiscriminatorTasks(NoIndexFileTasks):
+    def __init__(self, style_gan_tasks: StyleGanTasks):
+        super().__init__(style_gan_tasks.workspace,
+                         style_gan_tasks.prefix,
+                         "finished_discriminator",
+                         False)
+        self.style_gan_tasks = style_gan_tasks
+        self.source_file = self.style_gan_tasks.stabilize_phases[-1] \
+            .discriminator_tasks.file_name(self.style_gan_tasks.save_point_per_phase)
+        self.define_tasks()
+
+    @property
+    def file_name(self):
+        return self.prefix + "/finished_discriminator.pt"
+
+    def copy_file(self):
+        shutil.copy(self.source_file, self.file_name)
+
+    def create_file_task(self):
+        self.workspace.create_file_task(
+            self.file_name,
+            [self.source_file],
+            lambda: self.copy_file())
