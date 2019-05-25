@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, List
 
 import torch
 
@@ -252,6 +252,29 @@ def to_rgb_layer(size: int, num_channels_by_image_size: Dict[int, int] = None):
                   padding=0)
 
 
+def call_first_generator_block(block: Module,
+                               latent_vector: torch.Tensor,
+                               noise_image: List[List[torch.Tensor]]):
+    if noise_image is not None:
+        return block(latent_vector, noise_image[0][0], noise_image[0][1])
+    else:
+        return block(latent_vector, None, None)
+
+
+def call_generator_block(block: Module,
+                         input_image: torch.Tensor,
+                         latent_vector: torch.Tensor,
+                         noise_image_index: int,
+                         noise_image: List[List[torch.Tensor]]):
+    if noise_image is not None:
+        return block(input_image,
+                     latent_vector,
+                     noise_image[noise_image_index][0],
+                     noise_image[noise_image_index][1])
+    else:
+        return block(input_image, latent_vector, None, None)
+
+
 class GeneratorModule(GanModule):
     def __init__(self,
                  image_size: int,
@@ -271,10 +294,18 @@ class GeneratorModule(GanModule):
         self.add_module("to_rgb_%05d" % self.image_size, rgb_layer)
         self.to_rgb_layers = [rgb_layer]
 
-    def forward(self, latent_vector):
-        value = self.block_00004(latent_vector)
+    def forward(self, latent_vector: torch.Tensor, noise_image: List[List[torch.Tensor]] = None):
+        if noise_image is not None:
+            assert len(noise_image) >= len(self.blocks) + 1
+            for item in noise_image:
+                assert len(item) >= 2
+
+        value = call_first_generator_block(self.block_00004, latent_vector, noise_image)
+        noise_image_index = 1
         for block in self.blocks:
-            value = block(input_image=value, latent_vector=latent_vector)
+            value = call_generator_block(block, value, latent_vector, noise_image_index, noise_image)
+            noise_image_index += 1
+
         return self.to_rgb_layers[0](value)
 
     def initialize(self):
@@ -305,15 +336,31 @@ class GeneratorTransitionModule(GanModule):
 
         self.alpha = 0.0
 
-    def forward(self, latent_vector):
-        value = self.block_00004(latent_vector)
+    def forward(self, latent_vector: torch.Tensor, noise_image: List[List[torch.Tensor]] = None):
+        if noise_image is not None:
+            assert len(noise_image) >= len(self.blocks) + 1
+            for item in noise_image:
+                assert len(item) >= 2
+
+        value = call_first_generator_block(self.block_00004, latent_vector, noise_image)
+        noise_image_index = 1
         for block in self.blocks[:-1]:
-            value = block(input_image=value, latent_vector=latent_vector)
+            value = call_generator_block(block=block,
+                                         input_image=value,
+                                         latent_vector=latent_vector,
+                                         noise_image_index=noise_image_index,
+                                         noise_image=noise_image)
+            noise_image_index += 1
 
         lowres_image = self.to_rgb_layers[0](value)
         lowres_image = F.interpolate(lowres_image, scale_factor=2, mode='nearest')
 
-        highres_image = self.to_rgb_layers[1](self.blocks[-1](value, latent_vector))
+        highres_image = self.to_rgb_layers[1](
+            call_generator_block(block=self.blocks[-1],
+                                 input_image=value,
+                                 latent_vector=latent_vector,
+                                 noise_image_index=len(self.blocks),
+                                 noise_image=noise_image))
 
         return lowres_image * (1.0 - self.alpha) + highres_image * self.alpha
 

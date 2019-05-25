@@ -14,12 +14,7 @@ class TwoIndicesFileTasks(IndexedFileTasks):
         self.count0 = count0
         self.command_name = command_name
         self.prefix = prefix
-
         self.file_list_ = []
-        for i in range(self.count0):
-            for j in range(self.count1):
-                self.file_list_.append(self.file_name(i,j))
-
         if define_tasks_at_creation:
             self.define_tasks()
 
@@ -45,6 +40,10 @@ class TwoIndicesFileTasks(IndexedFileTasks):
 
     @property
     def file_list(self) -> List[str]:
+        if len(self.file_list_) == 0:
+            for i in range(self.count0):
+                for j in range(self.count1):
+                    self.file_list_.append(self.file_name(i, j))
         return self.file_list_
 
     @abc.abstractmethod
@@ -65,5 +64,5 @@ class TwoIndicesFileTasks(IndexedFileTasks):
         for index0 in range(self.count0):
             for index1 in range(self.count1):
                 self.create_file_tasks(index0, index1)
-        self.workspace.create_command_task(self.run_command, self.file_list_)
+        self.workspace.create_command_task(self.run_command, self.file_list)
         self.workspace.create_command_task(self.clean_command, [], lambda: self.clean())

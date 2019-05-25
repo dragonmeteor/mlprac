@@ -54,12 +54,29 @@ def save_sample_images(sample_images: torch.Tensor,
         ax.set_yticklabels([])
         ax.set_aspect('equal')
         sample_image_linear = (sample_images[i].numpy()
-            .reshape(3, sample_image_size * sample_image_size)
-            .transpose()
-            .reshape(sample_image_size, sample_image_size, 3) + 1.0) / 2.0
+                               .reshape(3, sample_image_size * sample_image_size)
+                               .transpose()
+                               .reshape(sample_image_size, sample_image_size, 3) + 1.0) / 2.0
         image = linear_to_srgb(sample_image_linear)
         plt.imshow(image)
 
     os.makedirs(os.path.dirname(file_name), exist_ok=True)
     plt.savefig(file_name, format="png")
     plt.close()
+
+
+def save_rng_state(file_name):
+    rng_state = torch.get_rng_state()
+    torch_save(rng_state, file_name)
+
+
+def load_rng_state(file_name):
+    rng_state = torch_load(file_name)
+    torch.set_rng_state(rng_state)
+
+
+def optimizer_to_device(optim, device):
+    for state in optim.state.values():
+        for k, v in state.items():
+            if isinstance(v, torch.Tensor):
+                state[k] = v.to(device)

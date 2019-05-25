@@ -14,7 +14,7 @@ class ZeroGpLoss(GanLoss):
         self.grad_loss_weight = grad_loss_weight
 
     def discriminator_loss(self,
-                           G: torch.nn.Module,
+                           G,
                            D: torch.nn.Module,
                            real_image: torch.Tensor,
                            latent_vector: torch.Tensor) -> torch.Tensor:
@@ -63,7 +63,7 @@ class ZeroGpLoss(GanLoss):
                 + combined_permuted[n:] * (1 - alpha)).detach()
 
     def generator_loss(self,
-                       G: torch.nn.Module,
+                       G,
                        D: torch.nn.Module,
                        real_image: torch.Tensor,
                        latent_vector: torch.Tensor) -> torch.Tensor:

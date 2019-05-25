@@ -16,11 +16,7 @@ class OneIndexFileTasks(IndexedFileTasks):
         self.prefix = prefix
         self.command_name = command_name
         self.count = count
-
         self.file_list_ = []
-        for i in range(self.count):
-            self.file_list_.append(self.file_name(i))
-
         if define_tasks_at_creation:
             self.define_tasks()
 
@@ -56,6 +52,9 @@ class OneIndexFileTasks(IndexedFileTasks):
 
     @property
     def file_list(self):
+        if len(self.file_list_) == 0:
+            for i in range(self.count):
+                self.file_list_.append(self.file_name(i))
         return self.file_list_
 
     def clean(self):
@@ -65,6 +64,6 @@ class OneIndexFileTasks(IndexedFileTasks):
     def define_tasks(self):
         for index in range(self.count):
             self.create_file_tasks(index)
-        dependencies = [self.file_name(i) for i in range(self.count)]
+        dependencies = self.file_list
         self.workspace.create_command_task(self.run_command, dependencies)
         self.workspace.create_command_task(self.clean_command, [], lambda: self.clean())
