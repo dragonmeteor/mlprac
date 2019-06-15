@@ -55,7 +55,7 @@ class Workspace:
         return name in self._tasks
 
     def task_exists_and_not_placeholder(self, name: str) -> bool:
-        return self.task_exists(name) and isinstance(self.get_task(name), PlaceholderTask)
+        return self.task_exists(name) and not isinstance(self.get_task(name), PlaceholderTask)
 
     def get_task(self, name: str) -> Task:
         return self._tasks[name]
@@ -68,8 +68,6 @@ class Workspace:
                 self._tasks[task.name] = task
                 self._modified = True
         else:
-            if self.task_exists_and_not_placeholder(task.name):
-                raise RuntimeError("Task %s already exists" % task.name)
             self._tasks[task.name] = task
             for dep in task.dependencies:
                 PlaceholderTask(self, dep)

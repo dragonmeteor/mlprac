@@ -74,5 +74,5 @@ def define_tasks(workspace: Workspace):
         loss_spec=WganGpWithDriftLoss(grad_loss_weight=10.0, device=cuda),
         training_spec=Resnet64GanTrainingSpec(),
         sample_image_spec=Resnet64GanSampleImageSpec(),
-        data_load_func=lambda batch_size: anime_face_data_loader(64, batch_size))
+        data_load_func=lambda batch_size, device: anime_face_data_loader(64, batch_size, device))
 
