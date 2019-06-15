@@ -1,3 +1,4 @@
+import abc
 import time
 from typing import Callable, Dict, List
 
@@ -23,12 +24,44 @@ DEFAULT_BATCH_SIZE = {
     8: 32,
     16: 32,
     32: 32,
-    64: 16,
-    128: 16,
-    256: 16,
+    64: 8,
+    128: 8,
+    256: 8,
     512: 8,
     1024: 8
 }
+
+
+class TrainingSchedule:
+    __metaclass__ = abc.ABC
+
+    def __init__(self,
+                 mapping_module_learning_rates: List[float],
+                 generator_module_learning_rates: List[float],
+                 discriminator_learning_rates: List[float]):
+        self.mapping_module_learning_rates_ = mapping_module_learning_rates
+        self.generator_module_learning_rates_ = generator_module_learning_rates
+        self.discriminator_learning_rates_ = discriminator_learning_rates
+
+        assert len(self.mapping_module_learning_rates_) == len(self.generator_module_learning_rates_)
+        assert len(self.mapping_module_learning_rates_) == len(self.discriminator_learning_rates_)
+
+    @property
+    def save_point_count(self) -> int:
+        return len(self.mapping_module_learning_rates_)
+
+    @property
+    def mapping_module_learning_rates(self) -> List[float]:
+        return self.mapping_module_learning_rates_
+
+    @property
+    def generator_module_learning_rates(self) -> List[float]:
+        return self.generator_module_learning_rates_
+
+    @property
+    def discriminator_learning_rates(self) -> List[float]:
+        return self.discriminator_learning_rates_
+
 
 STABILIZE_PHASE_NAME = "stabilize"
 TRANSITION_PHASE_NAME = "transition"
@@ -58,6 +91,9 @@ class StyleGanTasks:
                  discriminator_betas=(0, 0.999),
                  mapping_module_betas=(0, 0.999),
                  device=torch.device('cpu')):
+        if batch_size is None:
+            batch_size = DEFAULT_BATCH_SIZE
+
         self.workspace = workspace
         self.prefix = prefix
         self.style_gan_spec = style_gan_spec
@@ -66,7 +102,7 @@ class StyleGanTasks:
         self.data_loader_func = data_loader_func
         self.latent_vector_seed = latent_vector_seed
         self.training_seed = training_seed
-        self.batch_size = batch_size
+        self.batch_size = batch_size.copy()
         self.sample_image_count = sample_image_count
         self.sample_image_per_row = sample_image_per_row
         self.sample_per_sample_image = sample_per_sample_image
@@ -137,6 +173,25 @@ class StyleGanTasks:
                 self.finished_discriminator_tasks.file_name
             ])
 
+        # Loss plots
+        loss_plot_commands = []
+        for phase_tasks in self.stabilize_phases:
+            loss_plot_commands.append(phase_tasks.generator_loss_plot_tasks.run_command)
+            loss_plot_commands.append(phase_tasks.discriminator_loss_plot_tasks.run_command)
+        for phase_tasks in self.transition_phases:
+            loss_plot_commands.append(phase_tasks.generator_loss_plot_tasks.run_command)
+            loss_plot_commands.append(phase_tasks.discriminator_loss_plot_tasks.run_command)
+        self.workspace.create_command_task(self.prefix + "/loss_plot", loss_plot_commands)
+
+        loss_plot_clean_commands = []
+        for phase_tasks in self.stabilize_phases:
+            loss_plot_clean_commands.append(phase_tasks.generator_loss_plot_tasks.clean_command)
+            loss_plot_clean_commands.append(phase_tasks.discriminator_loss_plot_tasks.clean_command)
+        for phase_tasks in self.transition_phases:
+            loss_plot_clean_commands.append(phase_tasks.generator_loss_plot_tasks.clean_command)
+            loss_plot_clean_commands.append(phase_tasks.discriminator_loss_plot_tasks.clean_command)
+        self.workspace.create_command_task(self.prefix + "/loss_plot_clean", loss_plot_clean_commands)
+
     def sample_latent_vectors(self, count):
         return torch.randn(count,
                            self.style_gan_spec.latent_vector_size,
@@ -147,15 +202,15 @@ class StyleGanTasks:
 
         mapping_module = self.style_gan_spec.mapping_module().to(self.device)
         mapping_module.initialize()
-        torch_save(mapping_module, self.initial_mapping_module_tasks.file_name)
+        torch_save(mapping_module.state_dict(), self.initial_mapping_module_tasks.file_name)
 
         generator_module = self.style_gan_spec.generator_module_stabilize(4).to(self.device)
         generator_module.initialize()
-        torch_save(generator_module, self.initial_generator_module_tastks.file_name)
+        torch_save(generator_module.state_dict(), self.initial_generator_module_tastks.file_name)
 
         discriminator = self.style_gan_spec.discriminator_stabilize(4).to(self.device)
         discriminator.initialize()
-        torch_save(discriminator, self.initial_discriminator_tasks.file_name)
+        torch_save(discriminator.state_dict(), self.initial_discriminator_tasks.file_name)
 
     def load_latent_vector(self):
         return torch_load(self.latent_vector_tasks.file_name)
@@ -201,7 +256,7 @@ class StyleGanTasks:
                 limit = max(batch_size, self.sample_image_count - sample_images.shape[0])
                 vectors = latent_vector[sample_images.shape[0]:sample_images.shape[0] + limit]
             mapped_vectors = mapping_module(vectors)
-            images = generator_module(mapped_vectors, noise_image)
+            images = generator_module(mapped_vectors, noise_image).detach()
             if sample_images is None:
                 sample_images = images
             else:
@@ -352,7 +407,7 @@ class TrainingPhaseTasks:
         self.previous_discriminator_file_name = previous_discriminator_file_name
         self.previous_rng_state_file_name = previous_rng_state_file_name
 
-        self.prefix = self.style_gan_tasks.prefix + "/" + self.phase_name + ("%05d" % self.image_size)
+        self.prefix = self.style_gan_tasks.prefix + "/" + self.phase_name + ("_%05d" % self.image_size)
 
         self.save_point_count = self.style_gan_tasks.save_point_per_phase
         self.workspace = self.style_gan_tasks.workspace
@@ -387,6 +442,8 @@ class TrainingPhaseTasks:
         self.discriminator_loss_plot_tasks.define_tasks()
 
     def save_point_dependencies(self, save_point_index) -> List[str]:
+        sample_images_dependencies = [self.style_gan_tasks.latent_vector_tasks.file_name] \
+                                     + self.style_gan_tasks.noise_image_tasks.file_list
         if save_point_index == 0:
             return [
                 self.previous_rng_state_file_name,
@@ -396,16 +453,16 @@ class TrainingPhaseTasks:
             ]
         else:
             return [
-                self.rng_state_tasks.file_name(save_point_index - 1),
-                self.mapping_module_tasks.file_name(save_point_index - 1),
-                self.generator_module_tasks.file_name(save_point_index - 1),
-                self.discriminator_tasks.file_name(save_point_index - 1),
-                self.mapping_module_optimizer_state_tasks.file_name(save_point_index - 1),
-                self.generator_module_optimizer_state_tasks.file_name(save_point_index - 1),
-                self.discriminator_optimizer_state_tasks.file_name(save_point_index - 1),
-                self.generator_loss_tasks.file_name(save_point_index - 1),
-                self.discriminator_loss_tasks.file_name(save_point_index - 1)
-            ]
+                       self.rng_state_tasks.file_name(save_point_index - 1),
+                       self.mapping_module_tasks.file_name(save_point_index - 1),
+                       self.generator_module_tasks.file_name(save_point_index - 1),
+                       self.discriminator_tasks.file_name(save_point_index - 1),
+                       self.mapping_module_optimizer_state_tasks.file_name(save_point_index - 1),
+                       self.generator_module_optimizer_state_tasks.file_name(save_point_index - 1),
+                       self.discriminator_optimizer_state_tasks.file_name(save_point_index - 1),
+                       self.generator_loss_tasks.file_name(save_point_index - 1),
+                       self.discriminator_loss_tasks.file_name(save_point_index - 1)
+                   ] + sample_images_dependencies
 
     def create_mapping_module(self):
         return self.style_gan_tasks.style_gan_spec.mapping_module().to(self.style_gan_tasks.device)
@@ -427,7 +484,7 @@ class TrainingPhaseTasks:
                 .to(self.style_gan_tasks.device)
 
     def save_save_point_zero_files(self):
-        os.makedirs(self.prefix)
+        os.makedirs(self.prefix, exist_ok=True)
 
         load_rng_state(self.previous_rng_state_file_name)
         M = self.load_mapping_module(self.previous_mapping_module_file_name)
@@ -442,12 +499,12 @@ class TrainingPhaseTasks:
         D_optim = Adam(D.parameters(),
                        lr=self.style_gan_tasks.discriminator_learning_rate,
                        betas=self.style_gan_tasks.discriminator_betas)
-        generator_loss = torch.Tensor([0])
-        discriminator_loss = torch.Tensor([0])
+        generator_loss = [0.0]
+        discriminator_loss = [0.0]
 
         torch_save(M.state_dict(), self.mapping_module_tasks.file_name(0))
         torch_save(G.state_dict(), self.generator_module_tasks.file_name(0))
-        torch_save(D.state_dict(), self.discriminator_loss_tasks.file_name(0))
+        torch_save(D.state_dict(), self.discriminator_tasks.file_name(0))
         torch_save(M_optim.state_dict(), self.mapping_module_optimizer_state_tasks.file_name(0))
         torch_save(G_optim.state_dict(), self.generator_module_optimizer_state_tasks.file_name(0))
         torch_save(D_optim.state_dict(), self.discriminator_optimizer_state_tasks.file_name(0))
@@ -458,24 +515,27 @@ class TrainingPhaseTasks:
     def load_discriminator(self, discriminator_file_name):
         D = self.create_discriminator()
         D.initialize()
-        D.load_state_dict(torch_load(discriminator_file_name))
+        D.load_state_dict(torch_load(discriminator_file_name), strict=False)
         return D
 
     def load_generator_module(self, generator_module_file_name):
         G = self.create_generator_module()
         G.initialize()
-        G.load_state_dict(torch_load(generator_module_file_name))
+        G.load_state_dict(torch_load(generator_module_file_name), strict=False)
         return G
 
     def load_mapping_module(self, mapping_module_file_name):
         M = self.create_mapping_module()
         M.initialize()
-        M.load_state_dict(torch_load(mapping_module_file_name))
+        M.load_state_dict(torch_load(mapping_module_file_name), strict=False)
         return M
+
+    def learning_rate_scaling_factor(self):
+        return self.batch_size * 1.0 / self.style_gan_tasks.batch_size[4]
 
     def load_mapping_model_optimizer(self, M: Module, mapping_module_optimizer_state_file_name: str):
         M_optim = Adam(M.parameters(),
-                       lr=self.style_gan_tasks.mapping_module_learning_rate,
+                       lr=self.style_gan_tasks.mapping_module_learning_rate * self.learning_rate_scaling_factor(),
                        betas=self.style_gan_tasks.mapping_module_betas)
         M_optim.load_state_dict(torch_load(mapping_module_optimizer_state_file_name))
         optimizer_to_device(M_optim, self.style_gan_tasks.device)
@@ -483,7 +543,7 @@ class TrainingPhaseTasks:
 
     def load_generator_model_optimizer(self, G: Module, generator_module_optimizer_state_file_name: str):
         G_optim = Adam(G.parameters(),
-                       lr=self.style_gan_tasks.generator_module_learning_rate,
+                       lr=self.style_gan_tasks.generator_module_learning_rate * self.learning_rate_scaling_factor(),
                        betas=self.style_gan_tasks.generator_module_betas)
         G_optim.load_state_dict(torch_load(generator_module_optimizer_state_file_name))
         optimizer_to_device(G_optim, self.style_gan_tasks.device)
@@ -491,14 +551,14 @@ class TrainingPhaseTasks:
 
     def load_discriminator_optimizer(self, D: Module, discriminator_optimizer_state_file_name: str):
         D_optim = Adam(D.parameters(),
-                       lr=self.style_gan_tasks.discriminator_learning_rate,
+                       lr=self.style_gan_tasks.discriminator_learning_rate * self.learning_rate_scaling_factor(),
                        betas=self.style_gan_tasks.discriminator_betas)
         D_optim.load_state_dict(torch_load(discriminator_optimizer_state_file_name))
         optimizer_to_device(D_optim, self.style_gan_tasks.device)
         return D_optim
 
     def sample_image_file_name(self, save_point: int, index: int):
-        return self.prefix + ("/sample_image_%03d_%03d" % (save_point, index))
+        return self.prefix + ("/sample_image_%03d_%03d.png" % (save_point, index))
 
     def get_discriminator_next_real_image_batch(self) -> torch.Tensor:
         if self.discriminator_data_loader is None:
@@ -578,12 +638,12 @@ class TrainingPhaseTasks:
                 D.train(True)
                 D.zero_grad()
                 G.zero_grad()
-                D_loss = self.style_gan_tasks.loss_spec.discriminator_loss(lambda x: G(M(x)), D, real_images, latent_vectors)
+                D_loss = self.style_gan_tasks.loss_spec.discriminator_loss(lambda x: G(M(x)), D, real_images,
+                                                                           latent_vectors)
                 D_loss.backward()
                 D_optim.step()
 
-                if sample_count / self.style_gan_tasks.sample_per_loss_record >= loss_record_index:
-                    discriminator_loss.append(D_loss.item())
+                discriminator_loss.append(D_loss.item())
 
             if True:
                 real_images = self.get_generator_next_real_image_batch()
@@ -592,12 +652,13 @@ class TrainingPhaseTasks:
                 G.train(True)
                 G.zero_grad()
                 D.zero_grad()
-                G_loss = self.style_gan_tasks.loss_spec.generator_loss(lambda x: G(M(x)), D, real_images, latent_vectors)
+                G_loss = self.style_gan_tasks.loss_spec.generator_loss(lambda x: G(M(x)), D, real_images,
+                                                                       latent_vectors)
                 G_loss.backward()
                 G_optim.step()
+                M_optim.step()
 
-                if sample_count / self.style_gan_tasks.sample_per_loss_record >= loss_record_index:
-                    generator_loss.append(G_loss.item())
+                generator_loss.append(G_loss.item())
 
             if sample_count / self.style_gan_tasks.sample_per_loss_record >= loss_record_index:
                 loss_record_index += 1
@@ -613,7 +674,6 @@ class TrainingPhaseTasks:
                     print("Showed %d real images (alpha=%f) ..." % (iter_index * batch_size, alpha))
                 last_time = now
 
-
         torch_save(M.state_dict(), self.mapping_module_tasks.file_name(save_point))
         torch_save(G.state_dict(), self.generator_module_tasks.file_name(save_point))
         torch_save(D.state_dict(), self.discriminator_tasks.file_name(save_point))
@@ -624,6 +684,10 @@ class TrainingPhaseTasks:
         torch_save(discriminator_loss, self.discriminator_loss_tasks.file_name(save_point))
         save_rng_state(self.rng_state_tasks.file_name(save_point))
 
+        self.discriminator_data_loader = None
+        self.discriminator_data_loader_iter = None
+        self.generator_data_loader = None
+        self.generator_data_loader_iter = None
 
     def process_save_point(self, save_point_index):
         if save_point_index == 0:
@@ -803,9 +867,21 @@ class PhaseDiscriminatorLossTasks(OneIndexFileTasks):
                                         lambda: self.phase_tasks.process_save_point(index))
 
 
-def plot_loss(loss, title, y_label, file_name):
+def plot_loss(loss, title, y_label, file_name, window_size = 100):
     plt.figure()
-    plt.plot(loss)
+    if len(loss) == 1:
+        plt.plot(loss)
+    else:
+        raw_loss = loss[1:]
+        loss = []
+        sum = 0
+        for i in range(1, len(raw_loss)):
+            sum += raw_loss[i]
+            if i - window_size >= 0:
+                sum -= raw_loss[i-window_size]
+            mean = sum * 1.0 / min(window_size, (i+1))
+            loss.append(mean)
+        plt.plot(loss)
     plt.ylabel(y_label)
     plt.title(title)
     plt.savefig(file_name, format='png')
@@ -861,6 +937,7 @@ class PhaseDiscriminatorLossPlotTasks(OneIndexFileTasks):
                                         [self.phase_tasks.discriminator_loss_tasks.file_name(index)],
                                         lambda: self.plot_loss(index))
 
+
 class FinishedMappingModuleTasks(NoIndexFileTasks):
     def __init__(self, style_gan_tasks: StyleGanTasks):
         super().__init__(style_gan_tasks.workspace,
@@ -868,7 +945,7 @@ class FinishedMappingModuleTasks(NoIndexFileTasks):
                          "finished_mapping_module",
                          False)
         self.style_gan_tasks = style_gan_tasks
-        self.source_file = self.style_gan_tasks.stabilize_phases[-1]\
+        self.source_file = self.style_gan_tasks.stabilize_phases[-1] \
             .mapping_module_tasks.file_name(self.style_gan_tasks.save_point_per_phase)
         self.define_tasks()
 
@@ -893,7 +970,7 @@ class FinishedGeneratorModuleTasks(NoIndexFileTasks):
                          "finished_generator_module",
                          False)
         self.style_gan_tasks = style_gan_tasks
-        self.source_file = self.style_gan_tasks.stabilize_phases[-1]\
+        self.source_file = self.style_gan_tasks.stabilize_phases[-1] \
             .generator_module_tasks.file_name(self.style_gan_tasks.save_point_per_phase)
         self.define_tasks()
 
