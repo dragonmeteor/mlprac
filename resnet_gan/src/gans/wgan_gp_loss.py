@@ -59,8 +59,7 @@ class WganGpWithDriftLoss(GanLoss):
         alpha_shape = [1 for i in range(len(real_image.shape))]
         alpha_shape[0] = n
         alpha = torch.rand(alpha_shape, device=self.device)
-        return (combined_permuted[:n] * alpha
-                + combined_permuted[n:] * (1 - alpha)).detach()
+        return (combined_permuted[:n] * alpha + combined_permuted[n:] * (1 - alpha)).detach()
 
     def generator_loss(self,
                        G: torch.nn.Module,

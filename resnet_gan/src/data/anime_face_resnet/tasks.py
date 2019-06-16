@@ -15,19 +15,19 @@ class Resnet64GanTrainingSpec(GanTrainingSpec):
 
     @property
     def save_point_count(self) -> int:
-        return 6
+        return 12
 
     @property
     def sample_per_save_point(self) -> int:
-        return 10000
+        return 100000
 
     @property
     def generator_learning_rates(self) -> List[float]:
-        return [1e-4 for i in range(self.save_point_count)]
+        return [1e-4 for i in range(self.save_point_count//2)] + [3e-5 for i in range(self.save_point_count//2)]
 
     @property
     def discriminator_learning_rates(self) -> List[float]:
-        return [1e-4 for i in range(self.save_point_count)]
+        return [3e-4 for i in range(self.save_point_count//2)] + [1e-5 for i in range(self.save_point_count//2)]
 
     @property
     def batch_size(self) -> int:
@@ -74,5 +74,6 @@ def define_tasks(workspace: Workspace):
         loss_spec=WganGpWithDriftLoss(grad_loss_weight=10.0, device=cuda),
         training_spec=Resnet64GanTrainingSpec(),
         sample_image_spec=Resnet64GanSampleImageSpec(),
-        data_load_func=lambda batch_size, device: anime_face_data_loader(64, batch_size, device))
+        data_load_func=lambda batch_size, device: anime_face_data_loader(64, batch_size, device),
+        device=cuda)
 

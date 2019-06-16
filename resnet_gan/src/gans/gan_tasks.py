@@ -187,8 +187,6 @@ class GanTasks:
                 self.discriminator_optimizer_tasks.file_name(save_point_index - 1),
                 self.generator_loss_tasks.file_name(save_point_index - 1),
                 self.discriminator_loss_tasks.file_name(save_point_index - 1),
-                self.generator_loss_plot_tasks.file_name(save_point_index - 1),
-                self.discriminator_loss_plot_tasks.file_name(save_point_index - 1),
                 self.latent_vector_tasks.file_name]
 
     def save_save_point_zero_files(self):
@@ -243,8 +241,8 @@ class GanTasks:
     def sample_image_file_name(self, save_point: int, index: int):
         return self.prefix + ("/sample_image_%03d_%03d.png" % (save_point, index))
 
-    def load_latent_vector(self):
-        return torch_load(self.latent_vector_tasks.file_name)
+    def load_latent_vector(self) -> torch.Tensor:
+        return torch_load(self.latent_vector_tasks.file_name).to(device=self.device)
 
     def save_sample_images(self,
                            generator: Module,
@@ -326,15 +324,13 @@ class GanTasks:
         iter_index = 0
         print("=== Training Save Point %d ===" % save_point)
         last_time = time.time()
-        alpha = 0.0
 
         while sample_count < self.training_spec.sample_per_save_point:
             if sample_count / self.sample_image_spec.sample_per_sample_image >= sample_image_index:
                 self.save_sample_images(
                     generator=G,
                     batch_size=self.training_spec.batch_size,
-                    file_name=self.sample_image_file_name(save_point,
-                                                          sample_image_index))
+                    file_name=self.sample_image_file_name(save_point, sample_image_index))
                 sample_image_index += 1
 
             if True:
@@ -367,6 +363,7 @@ class GanTasks:
             now = time.time()
             if now - last_time > 10:
                 print("Showed %d real images ..." % (iter_index * batch_size))
+                last_time = now
 
         torch_save(G.state_dict(), self.generator_tasks.file_name(save_point))
         torch_save(D.state_dict(), self.discriminator_tasks.file_name(save_point))
@@ -629,7 +626,7 @@ class GeneratorLossPlotTasks(OneIndexFileTasks):
         self.gan_tasks = gan_tasks
 
     def file_name(self, index):
-        return self.prefix + ("/generator_loss_plot_%03d.pt" % index)
+        return self.prefix + ("/generator_loss_plot_%03d.png" % index)
 
     def plot_loss(self, index):
         loss = torch_load(self.gan_tasks.generator_loss_tasks.file_name(index))
@@ -654,7 +651,7 @@ class DiscriminatorLossPlotTasks(OneIndexFileTasks):
         self.gan_tasks = gan_tasks
 
     def file_name(self, index):
-        return self.prefix + ("/discriminator_loss_plot_%03d.pt" % index)
+        return self.prefix + ("/discriminator_loss_plot_%03d.png" % index)
 
     def plot_loss(self, index):
         loss = torch_load(self.gan_tasks.discriminator_loss_tasks.file_name(index))
