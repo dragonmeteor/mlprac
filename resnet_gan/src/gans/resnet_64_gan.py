@@ -6,6 +6,7 @@ from torch.nn.init import kaiming_normal_
 from gans.common_layers import Unflatten, Flatten
 from gans.gan_spec import Gan
 from gans.resnet import ResidualBlock2d
+from gans.spectral_norm_layers import SnConv2d, SnLinear
 
 LATENT_VECTOR_SIZE = 256
 
@@ -83,53 +84,72 @@ class Resnet64Generator(Module):
 
 
 class Resnet64Discriminator(Sequential):
-    def __init__(self):
-        super().__init__(
-            Conv2d(
+    def __init__(self, use_spectral_normalization=False):
+        if use_spectral_normalization:
+            first_conv = SnConv2d(
                 in_channels=3,
                 out_channels=256,
-                kernel_size=1),
+                kernel_size=1)
+            last_linear = SnLinear(in_features=256 * 4 * 4, out_features=1)
+        else:
+            first_conv = Conv2d(
+                in_channels=3,
+                out_channels=256,
+                kernel_size=1)
+            last_linear = Linear(in_features=256 * 4 * 4, out_features=1)
+        super().__init__(
+            first_conv,
             # 256 x 64 x 64
             ReLU(),
             ResidualBlock2d(
                 in_channels=256,
                 out_channels=256,
                 resample="down",
-                use_batchnorm=False),
+                use_batchnorm=False,
+                use_spectral_normalization=use_spectral_normalization),
             # 256 x 32 x 32
             ResidualBlock2d(
                 in_channels=256,
                 out_channels=256,
                 resample="down",
-                use_batchnorm=False),
+                use_batchnorm=False,
+                use_spectral_normalization=use_spectral_normalization),
             # 256 x 16 x 16
             ResidualBlock2d(
                 in_channels=256,
                 out_channels=256,
                 resample="down",
-                use_batchnorm=False),
+                use_batchnorm=False,
+                use_spectral_normalization=use_spectral_normalization),
             # 256 x 8 x 8
             ResidualBlock2d(
                 in_channels=256,
                 out_channels=256,
-                use_batchnorm=False),
+                use_batchnorm=False,
+                use_spectral_normalization=use_spectral_normalization),
             # 256 x 8 x 8
             ResidualBlock2d(
                 in_channels=256,
                 out_channels=256,
-                use_batchnorm=False),
+                use_batchnorm=False,
+                use_spectral_normalization=use_spectral_normalization),
             # 256 x 8 x 8
             ResidualBlock2d(
                 in_channels=256,
                 out_channels=256,
                 resample="down",
-                use_batchnorm=False),
+                use_batchnorm=False,
+                use_spectral_normalization=use_spectral_normalization),
             # 256 x 4 x 4
             Flatten(256 * 4 * 4),
-            Linear(in_features=256 * 4 * 4, out_features=1))
+            last_linear)
 
 
 class Resnet64Gan(Gan):
+    def __init__(self, use_spectral_normalization_in_discriminator=False):
+        super().__init__()
+        self.use_spectral_normalization_in_discriminator = use_spectral_normalization_in_discriminator
+
     @property
     def latent_vector_size(self) -> int:
         return LATENT_VECTOR_SIZE
@@ -142,7 +162,7 @@ class Resnet64Gan(Gan):
         return Resnet64Generator()
 
     def discriminator(self) -> Module:
-        return Resnet64Discriminator()
+        return Resnet64Discriminator(use_spectral_normalization=self.use_spectral_normalization_in_discriminator)
 
 
 if __name__ == "__main__":

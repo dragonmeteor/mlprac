@@ -148,6 +148,14 @@ class GanTasks:
         self.generator_data_loader = None
         self.generator_data_loader_iter = None
 
+        # Loss plots
+        self.workspace.create_command_task(self.prefix + "/loss_plot",
+                                           [self.generator_loss_plot_tasks.run_command,
+                                            self.discriminator_loss_plot_tasks.run_command])
+        self.workspace.create_command_task(self.prefix + "/loss_plot_clean",
+                                           [self.generator_loss_plot_tasks.clean_command,
+                                            self.discriminator_loss_plot_tasks.clean_command])
+
     def sample_latent_vectors(self, count):
         return torch.randn(
             count,
@@ -312,6 +320,11 @@ class GanTasks:
         D_optim = self.load_discriminator_optimizer(D, save_point - 1)
         generator_loss = torch_load(self.generator_loss_tasks.file_name(save_point - 1))
         discriminator_loss = torch_load(self.discriminator_loss_tasks.file_name(save_point - 1))
+
+        for param_group in G_optim.param_groups:
+            param_group['lr'] = self.training_spec.generator_learning_rates[save_point-1]
+        for param_group in D_optim.param_groups:
+            param_group['lr'] = self.training_spec.discriminator_learning_rates[save_point-1]
 
         self.discriminator_data_loader = None
         self.discriminator_data_loader_iter = None

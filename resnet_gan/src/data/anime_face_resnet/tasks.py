@@ -6,6 +6,7 @@ from data.anime_face.data_loader import anime_face_data_loader
 from gans.gan_tasks import GanTasks, GanTrainingSpec, SampleImageSpec
 from gans.resnet_64_gan import Resnet64Gan
 from gans.wgan_gp_loss import WganGpWithDriftLoss
+from gans.wgan_loss import WganLoss
 from pytasuku import Workspace
 
 
@@ -27,7 +28,7 @@ class Resnet64GanTrainingSpec(GanTrainingSpec):
 
     @property
     def discriminator_learning_rates(self) -> List[float]:
-        return [3e-4 for i in range(self.save_point_count//2)] + [1e-5 for i in range(self.save_point_count//2)]
+        return [3e-4 for i in range(self.save_point_count//2)] + [1e-4 for i in range(self.save_point_count//2)]
 
     @property
     def batch_size(self) -> int:
@@ -67,9 +68,10 @@ class Resnet64GanSampleImageSpec(SampleImageSpec):
 
 def define_tasks(workspace: Workspace):
     cuda = torch.device('cuda')
+
     GanTasks(
         workspace=workspace,
-        prefix="data/anime_face_resnet",
+        prefix="data/anime_face_resnet_0",
         gan_spec=Resnet64Gan(),
         loss_spec=WganGpWithDriftLoss(grad_loss_weight=10.0, device=cuda),
         training_spec=Resnet64GanTrainingSpec(),
@@ -77,3 +79,12 @@ def define_tasks(workspace: Workspace):
         data_load_func=lambda batch_size, device: anime_face_data_loader(64, batch_size, device),
         device=cuda)
 
+    GanTasks(
+        workspace=workspace,
+        prefix="data/anime_face_resnet",
+        gan_spec=Resnet64Gan(use_spectral_normalization_in_discriminator=True),
+        loss_spec=WganLoss(device=cuda),
+        training_spec=Resnet64GanTrainingSpec(),
+        sample_image_spec=Resnet64GanSampleImageSpec(),
+        data_load_func=lambda batch_size, device: anime_face_data_loader(64, batch_size, device),
+        device=cuda)
