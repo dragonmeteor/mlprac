@@ -3,16 +3,18 @@ import torch
 from torch.nn import BatchNorm2d
 import torch.nn.functional as F
 from torch.nn import Conv2d, Module, AvgPool2d
-from torch.nn.init import kaiming_normal_
+from torch.nn.init import kaiming_normal_, xavier_normal_
+from torch.nn.utils import spectral_norm
 
 from gans.common_layers import DoubleSize
-from gans.spectral_norm_layers import SnConv2d
 
 
 class ResidualBlock2d(Module):
     def __init__(self,
                  in_channels, out_channels,
-                 resample=None, use_batchnorm=False, use_last_relu=True, use_spectral_normalization=False):
+                 resample=None, use_batchnorm=False,
+                 use_last_relu=True, use_spectral_normalization=False,
+                 initialization="he"):
         super().__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -28,17 +30,25 @@ class ResidualBlock2d(Module):
         else:
             self.shortcut = None
 
-        if use_spectral_normalization:
-            self.conv1 = SnConv2d(in_channels=in_channels, out_channels=in_channels, kernel_size=3, padding=1)
+        conv1 = Conv2d(in_channels=in_channels, out_channels=in_channels, kernel_size=3, padding=1)
+        if initialization == "he":
+            kaiming_normal_(conv1.weight)
         else:
-            self.conv1 = Conv2d(in_channels=in_channels, out_channels=in_channels, kernel_size=3, padding=1)
-        kaiming_normal_(self.conv1.weight)
+            xavier_normal_(conv1.weight)
+        if use_spectral_normalization:
+            self.conv1 = spectral_norm(conv1)
+        else:
+            self.conv1 = conv1
 
-        if use_spectral_normalization:
-            self.conv2 = SnConv2d(in_channels=in_channels, out_channels=in_channels, kernel_size=3, padding=1)
+        conv2 = Conv2d(in_channels=in_channels, out_channels=in_channels, kernel_size=3, padding=1)
+        if initialization == "he":
+            kaiming_normal_(conv2.weight)
         else:
-            self.conv2 = Conv2d(in_channels=in_channels, out_channels=in_channels, kernel_size=3, padding=1)
-        kaiming_normal_(self.conv2.weight)
+            xavier_normal_(conv2.weight)
+        if use_spectral_normalization:
+            self.conv2 = spectral_norm(conv2)
+        else:
+            self.conv2 = conv2
 
         if use_batchnorm:
             self.batchnorm1 = BatchNorm2d(num_features=in_channels)
@@ -48,11 +58,15 @@ class ResidualBlock2d(Module):
             self.batchnorm2 = None
 
         if in_channels != out_channels:
-            if use_spectral_normalization:
-                self.channel_match = SnConv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1)
+            channel_match = Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1)
+            if initialization == "he":
+                kaiming_normal_(channel_match.weight)
             else:
-                self.channel_match = Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=1)
-            kaiming_normal_(self.channel_match.weight)
+                xavier_normal_(channel_match.weight)
+            if use_spectral_normalization:
+                self.channel_match = spectral_norm(channel_match)
+            else:
+                self.channel_match = channel_match
         else:
             self.channel_match = None
 

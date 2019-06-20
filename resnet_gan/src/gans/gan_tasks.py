@@ -149,9 +149,11 @@ class GanTasks:
         self.generator_data_loader_iter = None
 
         # Loss plots
-        self.workspace.create_command_task(self.prefix + "/loss_plot",
-                                           [self.generator_loss_plot_tasks.run_command,
-                                            self.discriminator_loss_plot_tasks.run_command])
+        loss_plot_deps = []
+        for i in range(self.generator_loss_plot_tasks.count):
+            loss_plot_deps.append(self.generator_loss_plot_tasks.file_name(i))
+            loss_plot_deps.append(self.discriminator_loss_plot_tasks.file_name(i))
+        self.workspace.create_command_task(self.prefix + "/loss_plot", loss_plot_deps)
         self.workspace.create_command_task(self.prefix + "/loss_plot_clean",
                                            [self.generator_loss_plot_tasks.clean_command,
                                             self.discriminator_loss_plot_tasks.clean_command])
@@ -174,6 +176,7 @@ class GanTasks:
         save_rng_state(self.initial_rng_state_tasks.file_name)
 
     def process_save_point(self, save_point_index: int):
+        print("in process save point")
         if save_point_index == 0:
             self.save_save_point_zero_files()
         else:
@@ -312,20 +315,31 @@ class GanTasks:
         return output
 
     def train(self, save_point: int):
+        print("train(save_point = %d)" % save_point)
+
+        print("load_rng_state")
         load_rng_state(self.rng_state_tasks.file_name(save_point - 1))
 
+        print("load generator")
         G = self.load_generator(self.generator_tasks.file_name(save_point - 1))
+        print("load generator")
         D = self.load_discriminator(self.discriminator_tasks.file_name(save_point - 1))
+        print("load G_optim")
         G_optim = self.load_generator_optimizer(G, save_point - 1)
+        print("load D_optim")
         D_optim = self.load_discriminator_optimizer(D, save_point - 1)
+        print("load generator loss")
         generator_loss = torch_load(self.generator_loss_tasks.file_name(save_point - 1))
+        print("load discriminator loss")
         discriminator_loss = torch_load(self.discriminator_loss_tasks.file_name(save_point - 1))
 
+        print("set learning rate")
         for param_group in G_optim.param_groups:
             param_group['lr'] = self.training_spec.generator_learning_rates[save_point-1]
         for param_group in D_optim.param_groups:
             param_group['lr'] = self.training_spec.discriminator_learning_rates[save_point-1]
 
+        print("reset loader")
         self.discriminator_data_loader = None
         self.discriminator_data_loader_iter = None
         self.generator_data_loader = None
@@ -378,6 +392,7 @@ class GanTasks:
                 print("Showed %d real images ..." % (iter_index * batch_size))
                 last_time = now
 
+        print("done training")
         torch_save(G.state_dict(), self.generator_tasks.file_name(save_point))
         torch_save(D.state_dict(), self.discriminator_tasks.file_name(save_point))
         torch_save(G_optim.state_dict(), self.generator_optimizer_tasks.file_name(save_point))
@@ -386,6 +401,7 @@ class GanTasks:
         torch_save(discriminator_loss, self.discriminator_loss_tasks.file_name(save_point))
         save_rng_state(self.rng_state_tasks.file_name(save_point))
 
+        print("reset loader")
         self.discriminator_data_loader = None
         self.discriminator_data_loader_iter = None
         self.generator_data_loader = None
@@ -607,7 +623,7 @@ class DiscriminatorLossTasks(OneIndexFileTasks):
             lambda: self.gan_tasks.process_save_point(index))
 
 
-def plot_loss(loss, title, y_label, file_name, window_size=100):
+def plot_loss_(loss, title, y_label, file_name, window_size=100):
     plt.figure()
     if len(loss) == 1:
         plt.plot(loss)
@@ -644,7 +660,7 @@ class GeneratorLossPlotTasks(OneIndexFileTasks):
     def plot_loss(self, index):
         loss = torch_load(self.gan_tasks.generator_loss_tasks.file_name(index))
         title = "Generator Loss (save_point=%d)" % index
-        plot_loss(loss, title, "Loss", self.file_name(index))
+        plot_loss_(loss, title, "Loss", self.file_name(index))
 
     def create_file_tasks(self, index):
         self.workspace.create_file_task(
@@ -669,7 +685,7 @@ class DiscriminatorLossPlotTasks(OneIndexFileTasks):
     def plot_loss(self, index):
         loss = torch_load(self.gan_tasks.discriminator_loss_tasks.file_name(index))
         title = "Discriminator Loss (save_point=%d)" % index
-        plot_loss(loss, title, "Loss", self.file_name(index))
+        plot_loss_(loss, title, "Loss", self.file_name(index))
 
     def create_file_tasks(self, index):
         self.workspace.create_file_task(
