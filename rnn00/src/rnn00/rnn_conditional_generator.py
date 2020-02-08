@@ -38,12 +38,20 @@ class RnnConditionalGenerator(Module):
             input_to_state_layers.append(LinearBlock(hidden_layer_size, hidden_layer_size, initialization_method))
         input_to_state_layers.append(LinearBlock(hidden_layer_size, state_size, initialization_method))
         self.input_to_state = Sequential(*input_to_state_layers)
-        self.state_to_score = init(Linear(state_size, self.num_letters, bias=True))
+
+        input_to_output_layers = [LinearBlock(input_size, hidden_layer_size, initialization_method)]
+        for i in range(hidden_layer_count - 1):
+            input_to_output_layers.append(LinearBlock(hidden_layer_size, hidden_layer_size, initialization_method))
+        input_to_output_layers.append(LinearBlock(hidden_layer_size, state_size, initialization_method))
+        self.input_to_output = Sequential(*input_to_output_layers)
+
+        self.state_and_output_to_score = init(Linear(state_size * 2, self.num_letters, bias=True))
 
     def forward(self, letter: torch.Tensor, klass: torch.Tensor, state: torch.Tensor):
         combined = torch.cat([letter, klass, state], dim=1)
         state = self.input_to_state(combined)
-        score = self.state_to_score(state)
+        output = self.input_to_output(combined)
+        score = self.state_and_output_to_score(torch.cat([state,output], dim=1))
         return score, state
 
     def forward_and_sample(self, letter: torch.Tensor, klass: torch.Tensor, state: torch.Tensor):
