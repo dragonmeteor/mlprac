@@ -13,6 +13,17 @@ def add_start_and_end_letter(s: str, start_letter: str = None, end_letter: str =
         s = s + end_letter
     return s
 
+
+def load_languages(dir: str):
+    languages = []
+    pattern = dir + "/*.txt"
+    file_names = glob.glob(pattern)
+    for file_name in file_names:
+        language = os.path.splitext(os.path.basename(file_name))[0]
+        languages.append(language)
+    return languages
+
+
 def load_languages_and_names(dir: str, start_letter: str = None, end_letter: str = None):
     languages = []
     names = []
